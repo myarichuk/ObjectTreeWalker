@@ -8,7 +8,7 @@
 
   <UsingTask TaskName="SetReleaseNotesProperty" AssemblyFile="SIL.ReleaseTasks.dll" />
 
-  <Target Name="AfterBuild">
+  <Target Name="ReleaseNotes" AfterTargets="Pack">
     <PropertyGroup>
       <FilterEntries>true</FilterEntries>
     </PropertyGroup>
