@@ -29,7 +29,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_get_public_value_type_property()
 		{
-			var accessor = new PropertyAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
 
 			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Foo", out var value));
 			Assert.Equal(123, value);
@@ -38,7 +38,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_get_public_reference_type_property()
 		{
-			var accessor = new PropertyAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
 
 			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Bar", out var value));
 			Assert.IsType<PrivateFooBar>(value);
@@ -52,7 +52,7 @@ namespace ObjectTreeWalker.Tests
 			var propertyInfo = typeof(PrivateFooBar).GetProperty("Foo", BindingFlags.NonPublic | BindingFlags.Instance) ??
 							   throw new InvalidOperationException("This is not supposed to happen!");
 
-			var accessor = new PropertyAccessor(typeof(PrivateFooBar));
+			var accessor = new ObjectAccessor(typeof(PrivateFooBar));
 
 			Assert.True(accessor.TryGetValue(new PrivateFooBar(), "Foo", out var value));
 			Assert.Equal(123, value);
@@ -62,7 +62,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_set_public_value_type_property()
 		{
-			var accessor = new PropertyAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
 			var obj = new PublicFooBar();
 
 			accessor.TrySetValue(obj, "Foo", 345);
@@ -73,7 +73,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_set_public_ref_type_property()
 		{
-			var accessor = new PropertyAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
 			var obj = new PublicFooBar();
 
 			Assert.NotNull(obj.Bar); //sanity check
@@ -84,7 +84,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_handle_null_on_value_type_property()
 		{
-			var accessor = new PropertyAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
 			var obj = new PublicFooBar();
 
 			accessor.TrySetValue(obj, "Foo", null);
@@ -99,7 +99,7 @@ namespace ObjectTreeWalker.Tests
 			var propertyInfo = typeof(PrivateFooBar).GetProperty("Foo", BindingFlags.NonPublic | BindingFlags.Instance) ??
 							   throw new InvalidOperationException("This is not supposed to happen!");
 
-			var accessor = new PropertyAccessor(typeof(PrivateFooBar));
+			var accessor = new ObjectAccessor(typeof(PrivateFooBar));
 			var obj = new PrivateFooBar();
 
 			accessor.TrySetValue(obj, "Foo", 345);
@@ -113,7 +113,7 @@ namespace ObjectTreeWalker.Tests
 			var propertyInfo = typeof(PrivateFooBar).GetProperty("Bar", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public) ??
 							   throw new InvalidOperationException("This is not supposed to happen!");
 
-			var accessor = new PropertyAccessor(typeof(PrivateFooBar));
+			var accessor = new ObjectAccessor(typeof(PrivateFooBar));
 			var obj = new PrivateFooBar();
 
 			Assert.NotNull(propertyInfo.GetValue(obj));

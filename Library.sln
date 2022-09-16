@@ -13,7 +13,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ObjectTreeWalker", "src\Obj
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ObjectTreeWalker.Tests", "tests\ObjectTreeWalker.Tests\ObjectTreeWalker.Tests.csproj", "{E58D3CF9-7BB8-448B-A132-F873660F4181}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PropertyAccessor.Performance", "tests\PropertyAccessor.Performance\PropertyAccessor.Performance.csproj", "{26234F7C-A2E5-4D25-9719-CE230947BB1B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ObjectAccessor.Performance", "tests\ObjectAccessor.Performance\ObjectAccessor.Performance.csproj", "{48AAFF7A-0F90-46BD-A74E-CD9E8B092C59}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -29,10 +29,10 @@ Global
 		{E58D3CF9-7BB8-448B-A132-F873660F4181}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E58D3CF9-7BB8-448B-A132-F873660F4181}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E58D3CF9-7BB8-448B-A132-F873660F4181}.Release|Any CPU.Build.0 = Release|Any CPU
-		{26234F7C-A2E5-4D25-9719-CE230947BB1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{26234F7C-A2E5-4D25-9719-CE230947BB1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{26234F7C-A2E5-4D25-9719-CE230947BB1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{26234F7C-A2E5-4D25-9719-CE230947BB1B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{48AAFF7A-0F90-46BD-A74E-CD9E8B092C59}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{48AAFF7A-0F90-46BD-A74E-CD9E8B092C59}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{48AAFF7A-0F90-46BD-A74E-CD9E8B092C59}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{48AAFF7A-0F90-46BD-A74E-CD9E8B092C59}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

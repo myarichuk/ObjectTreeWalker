@@ -5,6 +5,10 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RunAnalyzersDuringBuild>False</RunAnalyzersDuringBuild>
+    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+    <EnforceCodeStyleInBuild>False</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>False</EnableNETAnalyzers>
   </PropertyGroup>
 
 	<ItemGroup>

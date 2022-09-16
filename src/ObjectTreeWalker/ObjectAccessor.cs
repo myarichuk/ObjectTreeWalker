@@ -9,7 +9,7 @@ namespace ObjectTreeWalker;
 /// A helper class that replaces reflection access to properties and fields
 /// </summary>
 // inspired by https://www.codeproject.com/Articles/14560/Fast-Dynamic-Property-Field-Accessors
-internal class PropertyAccessor
+internal class ObjectAccessor
 {
 	private static readonly ConcurrentDictionary<Type, MethodInfo> GetDefaultCache = new();
 
@@ -18,10 +18,10 @@ internal class PropertyAccessor
 	private readonly Dictionary<string, Action<object, object>> _setPropertyMethods = new();
 
 	/// <summary>
-	/// Initializes a new instance of the <see cref="PropertyAccessor"/> class
+	/// Initializes a new instance of the <see cref="ObjectAccessor"/> class
 	/// </summary>
 	/// <param name="objectType">type of the object to prepare access of it's properties</param>
-	public PropertyAccessor(Type objectType)
+	public ObjectAccessor(Type objectType)
 	{
 		_objectType = objectType;
 		foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
@@ -101,7 +101,7 @@ internal class PropertyAccessor
 			var getDefaultConcrete =
 				GetDefaultCache.GetOrAdd(
 					propertyInfo.PropertyType,
-					t => typeof(PropertyAccessor)
+					t => typeof(ObjectAccessor)
 						.GetMethod(
 							nameof(GetDefault),
 							BindingFlags.Static | BindingFlags.NonPublic)!

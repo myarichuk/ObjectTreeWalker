@@ -1,7 +1,8 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using FastMember;
-using ObjectTreeWalker;
+using ObjectAccessor = ObjectTreeWalker.ObjectAccessor;
+
 
 public class Foobar
 {
@@ -12,14 +13,14 @@ public class Foobar
 public class Program
 {
 	private Foobar? _objectInstance;
-	private PropertyAccessor? _accessor;
+	private ObjectAccessor? _accessor;
 	private TypeAccessor? _typeAccessor;
 
 	[IterationSetup]
 	public void Init()
 	{
 		_objectInstance = new Foobar { NumberProp = 1 };
-		_accessor = new PropertyAccessor(typeof(Foobar));
+		_accessor = new ObjectAccessor(typeof(Foobar));
 		_typeAccessor = TypeAccessor.Create(typeof(Foobar));
 	}
 
@@ -33,7 +34,7 @@ public class Program
 	}
 
 	[Benchmark]
-	public void PropertyAccessor()
+	public void ObjectAccessor()
 	{
 		for (int i = 0; i < 9000000; i++)
 		{
