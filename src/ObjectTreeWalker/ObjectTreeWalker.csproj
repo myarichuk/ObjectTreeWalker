@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <TargetFrameworks>net6.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <Title>Object Tree Walker</Title>
     <Description>ObjectGraphWalker is a simple utility class that allows traversing over C# object properties, Node.js style</Description>
@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="*" />
+    <PackageReference Include="Sigil" Version="*" />
   </ItemGroup>
 
 </Project>
