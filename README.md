@@ -13,3 +13,10 @@ iterator.Traverse(someObject, prop =>
 });
 
 ```
+
+## Notes
+* The iterator will read public and private properties and fields but will ignore any static members of the object. 
+* The iterator will work on both value and reference types
+* The iterator will ignore backing fields for "auto properties" and it will ignore any compiler generated fields such as closures
+* The iterator is still WIP and should be more thoroughly tested
+* Additional configuration for iterator behavior is planned. See [Issues](https://github.com/myarichuk/ObjectTreeWalker/issues) tab for more information.
