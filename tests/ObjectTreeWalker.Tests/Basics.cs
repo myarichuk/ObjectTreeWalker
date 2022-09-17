@@ -8,6 +8,8 @@ namespace ObjectTreeWalker.Tests
 		{
 			public int Foo { get; set; } = 123;
 
+			public int Test123 = 555;
+
 			public PrivateFooBar Bar { get; set; } = new();
 		}
 
@@ -20,6 +22,8 @@ namespace ObjectTreeWalker.Tests
 		{
 			// ReSharper disable once UnusedMember.Local
 			private int Foo { get; set; } = 123;
+
+			private int Test123 = 555;
 
 			public int Tester { get; set; } = 345;
 
@@ -36,6 +40,16 @@ namespace ObjectTreeWalker.Tests
 		}
 
 		[Fact]
+		public void Can_get_public_value_type_field()
+		{
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+
+			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Test123", out var value));
+			Assert.Equal(555, value);
+		}
+
+
+		[Fact]
 		public void Can_get_public_reference_type_property()
 		{
 			var accessor = new ObjectAccessor(typeof(PublicFooBar));
@@ -49,15 +63,21 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_get_private_value_type_property()
 		{
-			var propertyInfo = typeof(PrivateFooBar).GetProperty("Foo", BindingFlags.NonPublic | BindingFlags.Instance) ??
-							   throw new InvalidOperationException("This is not supposed to happen!");
-
 			var accessor = new ObjectAccessor(typeof(PrivateFooBar));
 
 			Assert.True(accessor.TryGetValue(new PrivateFooBar(), "Foo", out var value));
 			Assert.Equal(123, value);
 		}
 
+
+		[Fact]
+		public void Can_get_private_value_type_field()
+		{
+			var accessor = new ObjectAccessor(typeof(PrivateFooBar));
+
+			Assert.True(accessor.TryGetValue(new PrivateFooBar(), "Test123", out var value));
+			Assert.Equal(555, value);
+		}
 
 		[Fact]
 		public void Can_set_public_value_type_property()
@@ -92,6 +112,27 @@ namespace ObjectTreeWalker.Tests
 			Assert.Equal(0, obj.Foo);
 		}
 
+		[Fact]
+		public void Can_handle_null_on_value_type_field()
+		{
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+			var obj = new PublicFooBar();
+
+			accessor.TrySetValue(obj, "Test123", null);
+
+			Assert.Equal(0, obj.Test123);
+		}
+
+		[Fact]
+		public void Can_set_value_type_field()
+		{
+			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+			var obj = new PublicFooBar();
+
+			accessor.TrySetValue(obj, "Test123", 345);
+
+			Assert.Equal(345, obj.Test123);
+		}
 
 		[Fact]
 		public void Can_set_private_value_type_property()

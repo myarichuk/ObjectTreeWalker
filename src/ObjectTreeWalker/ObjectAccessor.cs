@@ -17,6 +17,9 @@ internal class ObjectAccessor
 	private readonly Dictionary<string, Func<object, object>> _getPropertyMethods = new();
 	private readonly Dictionary<string, Action<object, object>> _setPropertyMethods = new();
 
+	private readonly Dictionary<string, Func<object, object>> _getFieldMethods = new();
+	private readonly Dictionary<string, Action<object, object>> _setFieldMethods = new();
+
 	/// <summary>
 	/// Initializes a new instance of the <see cref="ObjectAccessor"/> class
 	/// </summary>
@@ -29,49 +32,134 @@ internal class ObjectAccessor
 			_getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
 			_setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
 		}
+
+		foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
+		{
+			_getFieldMethods.Add(fieldInfo.Name, CreateGetFieldFunc(fieldInfo));
+			_setFieldMethods.Add(fieldInfo.Name, CreateSetFieldFunc(fieldInfo));
+		}
 	}
 
-	public bool TryGetValue(object source, string propertyName, out object? value)
+	public bool TryGetValue(object source, string memberName, out object? value)
 	{
-		if (propertyName == null)
+		if (memberName == null)
 		{
-			throw new ArgumentNullException(nameof(propertyName));
+			throw new ArgumentNullException(nameof(memberName));
 		}
 
 		value = default;
-		if (!_getPropertyMethods.TryGetValue(propertyName, out var getterFunc))
+		if (!_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
 		{
-			return false;
+			if (!_getFieldMethods.TryGetValue(memberName, out var getterFieldFunc))
+			{
+				return false;
+			}
+
+			value = getterFieldFunc(source);
+			return true;
 		}
 
-		value = getterFunc(source);
+		value = getterPropertyFunc(source);
 		return true;
 	}
 
-	public bool TrySetValue(object source, string propertyName, object? value)
+	public bool TrySetValue(object source, string memberName, object? value)
 	{
-		if (propertyName == null)
+		if (memberName == null)
 		{
-			throw new ArgumentNullException(nameof(propertyName));
+			throw new ArgumentNullException(nameof(memberName));
 		}
 
-		if (!_setPropertyMethods.TryGetValue(propertyName, out var setterFunc))
+		if (!_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
 		{
-			return false;
+			if (!_setFieldMethods.TryGetValue(memberName, out var setterFieldFunc))
+			{
+				return false;
+			}
+
+			setterFieldFunc(source, value);
+			return true;
 		}
 
-		setterFunc(source, value);
-
+		setterPropertyFunc(source, value);
 		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static T? GetDefault<T>() => default;
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static string GetMethodName(string prefix, MemberInfo memberInfo)
+	{
+		var className = memberInfo.ReflectedType?.AssemblyQualifiedName ?? string.Empty;
+		return $"{prefix}{className}{memberInfo.Name}";
+	}
+
+	private Func<object, object> CreateGetFieldFunc(FieldInfo fieldInfo)
+	{
+		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", fieldInfo));
+
+		emitter.LoadArgument(0); // this
+		emitter.CastClass(_objectType);
+		emitter.LoadField(fieldInfo);
+
+		if (fieldInfo.FieldType.IsValueType)
+		{
+			emitter.Box(fieldInfo.FieldType);
+		}
+
+		emitter.Return();
+		return emitter.CreateDelegate();
+	}
+
+	private Action<object, object> CreateSetFieldFunc(FieldInfo fieldInfo)
+	{
+		var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", fieldInfo));
+		var afterLabel = emitter.DefineLabel("after");
+
+		if (fieldInfo.FieldType.IsValueType)
+		{
+			emitter.LoadArgument(1);
+			emitter.BranchIfTrue("after");
+
+			var getDefaultConcrete =
+				GetDefaultCache.GetOrAdd(
+					fieldInfo.FieldType,
+					t => typeof(ObjectAccessor)
+						.GetMethod(
+							nameof(GetDefault),
+							BindingFlags.Static | BindingFlags.NonPublic)!
+						.MakeGenericMethod(t));
+
+			emitter.Call(getDefaultConcrete);
+			emitter.Box(fieldInfo.FieldType);
+			emitter.StoreArgument(1);
+		}
+
+		emitter.MarkLabel(afterLabel);
+
+		emitter.LoadArgument(0); // this
+		emitter.CastClass(_objectType);
+		emitter.LoadArgument(1); // value to save
+
+		if (fieldInfo.FieldType.IsValueType)
+		{
+			emitter.UnboxAny(fieldInfo.FieldType);
+		}
+		else
+		{
+			emitter.CastClass(fieldInfo.FieldType);
+		}
+
+		emitter.StoreField(fieldInfo);
+
+		emitter.Return();
+		return emitter.CreateDelegate();
+	}
+
 	private Func<object, object> CreateGetPropertyFunc(PropertyInfo propertyInfo)
 	{
-		var className = propertyInfo.ReflectedType?.AssemblyQualifiedName ?? string.Empty;
-		var emitter = Emit<Func<object, object>>.NewDynamicMethod($"Get{className}{propertyInfo.Name}");
+		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", propertyInfo));
 
 		emitter.LoadArgument(0); // this
 		emitter.CastClass(_objectType);
@@ -89,8 +177,7 @@ internal class ObjectAccessor
 
 	private Action<object, object> CreateSetPropertyFunc(PropertyInfo propertyInfo)
 	{
-		var className = propertyInfo.ReflectedType?.AssemblyQualifiedName ?? string.Empty;
-		var emitter = Emit<Action<object, object>>.NewDynamicMethod($"Set{className}{propertyInfo.Name}");
+		var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", propertyInfo));
 		var afterLabel = emitter.DefineLabel("after");
 
 		if (propertyInfo.PropertyType.IsValueType)

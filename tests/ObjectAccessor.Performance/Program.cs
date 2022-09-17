@@ -25,7 +25,7 @@ public class Program
 	}
 
 	[Benchmark(Baseline = true)]
-	public void CSharp()
+	public void CSharpProperty()
 	{
 		for (int i = 0; i < 9000000; i++)
 		{
@@ -34,7 +34,7 @@ public class Program
 	}
 
 	[Benchmark]
-	public void ObjectAccessor()
+	public void ObjectAccessorProperty()
 	{
 		for (int i = 0; i < 9000000; i++)
 		{
@@ -44,7 +44,7 @@ public class Program
 	}
 
 	[Benchmark]
-	public void FastMember()
+	public void FastMemberProperty()
 	{
 		for (int i = 0; i < 9000000; i++)
 		{
