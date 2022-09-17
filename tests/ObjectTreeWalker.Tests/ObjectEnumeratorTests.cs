@@ -19,7 +19,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_enumerate_flat_object()
 		{
-			var objectGraph = ObjectEnumerator.Enumerate(typeof(FlatObj));
+			var objectGraph = new ObjectEnumerator().Enumerate(typeof(FlatObj));
 
 			Assert.NotNull(objectGraph);
 			Assert.Equal(2, objectGraph.Roots.Count);
@@ -31,7 +31,7 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_enumerate_deep_object()
 		{
-			var objectGraph = ObjectEnumerator.Enumerate(typeof(DeepObj));
+			var objectGraph = new ObjectEnumerator().Enumerate(typeof(DeepObj));
 
 			Assert.NotNull(objectGraph);
 

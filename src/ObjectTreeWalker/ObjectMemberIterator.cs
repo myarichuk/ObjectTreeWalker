@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.ObjectPool;
 
@@ -14,7 +13,19 @@ namespace ObjectTreeWalker
 		private static readonly ObjectPool<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>> TraversalQueuePool =
 			new DefaultObjectPoolProvider().Create<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>>();
 
-		private readonly ObjectEnumerator _objectEnumerator = new();
+		private readonly ObjectEnumerator _objectEnumerator;
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectMemberIterator"/> class.
+		/// </summary>
+		/// <param name="ignoreCompilerGenerated"></param>
+		public ObjectMemberIterator(bool ignoreCompilerGenerated = true)
+		{
+			_objectEnumerator = new(new ObjectEnumerator.Settings
+			{
+				IgnoreCompilerGenerated = ignoreCompilerGenerated,
+			});
+		}
 
 		public void Traverse(object obj, Action<IterationInfo> visitor)
 		{

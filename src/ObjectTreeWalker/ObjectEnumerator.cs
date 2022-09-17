@@ -9,7 +9,26 @@ namespace ObjectTreeWalker
 	/// </summary>
 	internal class ObjectEnumerator
 	{
+		public struct Settings
+		{
+			public bool IgnoreCompilerGenerated { get; set; }
+		}
+
 		private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
+		private readonly Settings _settings;
+
+		public ObjectEnumerator(in Settings settings)
+		{
+			_settings = settings;
+		}
+
+		public ObjectEnumerator()
+		{
+			_settings = new()
+			{
+				IgnoreCompilerGenerated = true,
+			};
+		}
 
 		/// <summary>
 		/// Enumerate and fetch property/field graph of the type
@@ -60,10 +79,12 @@ namespace ObjectTreeWalker
 			foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 			{
 				// ignore backing property, if the attribute is not true then it is a backing property
-				if (field.GetCustomAttribute<CompilerGeneratedAttribute>() == null)
+				if (_settings.IgnoreCompilerGenerated && field.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
 				{
-					yield return (field, true, true);
+					continue;
 				}
+
+				yield return (field, true, true);
 			}
 		}
 	}
