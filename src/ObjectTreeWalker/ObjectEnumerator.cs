@@ -4,15 +4,26 @@ using System.Runtime.CompilerServices;
 
 namespace ObjectTreeWalker
 {
+	/// <summary>
+	/// Exposes helper function to enumerate types and fetch member graph
+	/// </summary>
 	internal static class ObjectEnumerator
 	{
 		private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
 
-		public static ObjectGraph Enumerate(Type type)
-		{
-			var roots = EnumerateChildMembers(type).Select(memberData => EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet));
-			return new ObjectGraph(type, roots);
-		}
+		/// <summary>
+		/// Enumerate and fetch property/field graph of the type
+		/// </summary>
+		/// <param name="type">the type to enumerate</param>
+		/// <returns>object graph</returns>
+		/// <exception cref="OverflowException">The object graph cache contains too many elements.</exception>
+		public static ObjectGraph Enumerate(Type type) =>
+			ObjectGraphCache.GetOrAdd(type, t =>
+			{
+				var roots = EnumerateChildMembers(t).Select(memberData =>
+					EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet));
+				return new ObjectGraph(t, roots);
+			});
 
 		private static ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet)
 		{
