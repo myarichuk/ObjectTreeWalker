@@ -45,8 +45,13 @@ namespace ObjectTreeWalker
 			return ogn;
 		}
 
-		private static IEnumerable<(MemberInfo mi, bool canGet, bool canSet)> EnumerateChildMembers(IReflect type)
+		private static IEnumerable<(MemberInfo mi, bool canGet, bool canSet)> EnumerateChildMembers(Type type)
 		{
+			if (type.IsPrimitive)
+			{
+				yield break;
+			}
+
 			foreach (var property in type.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 			{
 				yield return (property, property.GetMethod != null, property.SetMethod != null);
@@ -54,6 +59,7 @@ namespace ObjectTreeWalker
 
 			foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 			{
+				// ignore backing property, if the attribute is not true then it is a backing property
 				if (field.GetCustomAttribute<CompilerGeneratedAttribute>() == null)
 				{
 					yield return (field, true, true);
