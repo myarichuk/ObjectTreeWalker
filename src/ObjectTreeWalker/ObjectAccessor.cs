@@ -129,7 +129,15 @@ internal class ObjectAccessor
 		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", fieldInfo));
 
 		emitter.LoadArgument(0); // this
-		emitter.CastClass(_objectType);
+		if (_objectType.IsValueType)
+		{
+			emitter.Unbox(_objectType);
+		}
+		else
+		{
+			emitter.CastClass(_objectType);
+		}
+
 		emitter.LoadField(fieldInfo);
 
 		if (fieldInfo.FieldType.IsValueType)
@@ -168,7 +176,15 @@ internal class ObjectAccessor
 		emitter.MarkLabel(afterLabel);
 
 		emitter.LoadArgument(0); // this
-		emitter.CastClass(_objectType);
+		if (_objectType.IsValueType)
+		{
+			emitter.Unbox(_objectType);
+		}
+		else
+		{
+			emitter.CastClass(_objectType);
+		}
+
 		emitter.LoadArgument(1); // value to save
 
 		if (fieldInfo.FieldType.IsValueType)
@@ -191,7 +207,15 @@ internal class ObjectAccessor
 		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", propertyInfo));
 
 		emitter.LoadArgument(0); // this
-		emitter.CastClass(_objectType);
+		if (_objectType.IsValueType)
+		{
+			emitter.Unbox(_objectType);
+		}
+		else
+		{
+			emitter.CastClass(_objectType);
+		}
+
 		emitter.CallVirtual(propertyInfo.GetMethod);
 
 		if (propertyInfo.PropertyType.IsValueType)
@@ -230,7 +254,14 @@ internal class ObjectAccessor
 
 		emitter.MarkLabel(afterLabel);
 		emitter.LoadArgument(0); // this
-		emitter.CastClass(_objectType);
+		if (_objectType.IsValueType)
+		{
+			emitter.Unbox(_objectType);
+		}
+		else
+		{
+			emitter.CastClass(_objectType);
+		}
 
 		emitter.LoadArgument(1); // property value
 
