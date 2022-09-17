@@ -9,6 +9,7 @@
     <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
     <EnforceCodeStyleInBuild>False</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>False</EnableNETAnalyzers>
+	<IsPackable>false</IsPackable>
   </PropertyGroup>
 
 	<ItemGroup>
