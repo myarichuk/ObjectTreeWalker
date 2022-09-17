@@ -4,7 +4,7 @@
     <TargetFrameworks>net6.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <Title>Object Tree Walker</Title>
-    <Description>ObjectGraphWalker is a simple utility class that allows traversing over C# object properties, Node.js style</Description>
+    <Description>A simple utility class that allows traversing over C# object properties, Node.js style</Description>
     <PackageProjectUrl></PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/myarichuk/ObjectTreeWalker</RepositoryUrl>
