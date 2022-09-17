@@ -13,9 +13,21 @@ namespace ObjectTreeWalker.Tests
 			public PrivateFooBar Bar { get; set; } = new();
 		}
 
-		public class Foo
+		internal struct PublicFooBarStruct
 		{
+			public int Foo { get; set; } = 123;
 
+			public int Test123 = 555;
+
+			public PublicFooBarStruct()
+			{
+			}
+
+			public PrivateFooBar Bar { get; set; } = new();
+		}
+
+		public class FooABC
+		{
 		}
 
 		public ref struct Xyz
@@ -31,38 +43,44 @@ namespace ObjectTreeWalker.Tests
 
 			public int Tester { get; set; } = 345;
 
-			public Foo Bar { get; set; } = new();
+			public FooABC Bar { get; set; } = new();
 		}
 
 		[Fact]
 		public void Should_throw_on_ref_struct() =>
 			Assert.Throws<ArgumentException>(() => new ObjectAccessor(typeof(Xyz)));
 
-		[Fact]
-		public void Can_get_public_value_type_property()
+		[Theory]
+		[InlineData(typeof(PublicFooBar))]
+		[InlineData(typeof(PublicFooBarStruct))]
+		public void Can_get_public_value_type_property(Type type)
 		{
-			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(type);
 
-			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Foo", out var value));
+			Assert.True(accessor.TryGetValue(Activator.CreateInstance(type), "Foo", out var value));
 			Assert.Equal(123, value);
 		}
 
-		[Fact]
-		public void Can_get_public_value_type_field()
+		[Theory]
+		[InlineData(typeof(PublicFooBar))]
+		[InlineData(typeof(PublicFooBarStruct))]
+		public void Can_get_public_value_type_field(Type type)
 		{
-			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(type);
 
-			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Test123", out var value));
+			Assert.True(accessor.TryGetValue(Activator.CreateInstance(type), "Test123", out var value));
 			Assert.Equal(555, value);
 		}
 
 
-		[Fact]
-		public void Can_get_public_reference_type_property()
+		[Theory]
+		[InlineData(typeof(PublicFooBar))]
+		[InlineData(typeof(PublicFooBarStruct))]
+		public void Can_get_public_reference_type_property(Type type)
 		{
-			var accessor = new ObjectAccessor(typeof(PublicFooBar));
+			var accessor = new ObjectAccessor(type);
 
-			Assert.True(accessor.TryGetValue(new PublicFooBar(), "Bar", out var value));
+			Assert.True(accessor.TryGetValue(Activator.CreateInstance(type), "Bar", out var value));
 			Assert.IsType<PrivateFooBar>(value);
 
 			Assert.Equal(345, ((PrivateFooBar)value).Tester);
@@ -87,15 +105,17 @@ namespace ObjectTreeWalker.Tests
 			Assert.Equal(555, value);
 		}
 
-		[Fact]
-		public void Can_set_public_value_type_property()
+		[Theory]
+		[InlineData(typeof(PublicFooBar))]
+		[InlineData(typeof(PublicFooBarStruct))]
+		public void Can_set_public_value_type_property(Type type)
 		{
-			var accessor = new ObjectAccessor(typeof(PublicFooBar));
-			var obj = new PublicFooBar();
+			var accessor = new ObjectAccessor(type);
+			var obj = Activator.CreateInstance(type);
 
 			accessor.TrySetValue(obj, "Foo", 345);
 
-			Assert.Equal(345, obj.Foo);
+			Assert.Equal(345, ((dynamic)obj).Foo);
 		}
 
 		[Fact]
