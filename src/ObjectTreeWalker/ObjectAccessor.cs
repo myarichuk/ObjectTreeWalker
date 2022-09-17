@@ -25,8 +25,14 @@ internal class ObjectAccessor
 	/// Initializes a new instance of the <see cref="ObjectAccessor"/> class
 	/// </summary>
 	/// <param name="objectType">type of the object to prepare access of it's properties</param>
+	/// <exception cref="ArgumentException">$"The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
 	public ObjectAccessor(Type objectType)
 	{
+		if (objectType.IsValueType && objectType.IsByRefLike)
+		{
+			throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
+		}
+
 		_objectType = objectType;
 		foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 		{

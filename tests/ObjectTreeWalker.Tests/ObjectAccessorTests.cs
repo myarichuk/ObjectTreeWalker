@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace ObjectTreeWalker.Tests
 {
-	public class Basics
+	public class ObjectAccessorTests
 	{
 		internal class PublicFooBar
 		{
@@ -18,6 +18,10 @@ namespace ObjectTreeWalker.Tests
 
 		}
 
+		public ref struct Xyz
+		{
+		}
+
 		internal class PrivateFooBar
 		{
 			// ReSharper disable once UnusedMember.Local
@@ -29,6 +33,10 @@ namespace ObjectTreeWalker.Tests
 
 			public Foo Bar { get; set; } = new();
 		}
+
+		[Fact]
+		public void Should_throw_on_ref_struct() =>
+			Assert.Throws<ArgumentException>(() => new ObjectAccessor(typeof(Xyz)));
 
 		[Fact]
 		public void Can_get_public_value_type_property()
