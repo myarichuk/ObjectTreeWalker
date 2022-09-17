@@ -34,6 +34,17 @@ public class Program
 	}
 
 	[Benchmark]
+	public void Reflection()
+	{
+		var propInfo = typeof(Foobar).GetProperty(nameof(Foobar.NumberProp));
+		for (int i = 0; i < 9000000; i++)
+		{
+			var val = (int)propInfo.GetValue(_objectInstance);
+			propInfo.SetValue(_objectInstance, val + 1);
+		}
+	}
+
+	[Benchmark]
 	public void ObjectAccessorProperty()
 	{
 		for (int i = 0; i < 9000000; i++)
