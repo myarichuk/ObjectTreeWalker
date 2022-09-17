@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0.0] - 2022-09-17
+### :sparkles: New Features
+- [`0f6e7dd`](https://github.com/myarichuk/ObjectTreeWalker/commit/0f6e7dd1f735231cfab83b16a57e64770e238747) - inner implementation - object enumerator to compute and cache property/field graph per type *(commit by [@myarichuk](https://github.com/myarichuk))*
+- [`219854d`](https://github.com/myarichuk/ObjectTreeWalker/commit/219854d6524da067f975171381b22fe9d690826f) - implement basic object member iterator functionality, probably will need more testing *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+### :bug: Bug Fixes
+- [`48f9c6c`](https://github.com/myarichuk/ObjectTreeWalker/commit/48f9c6c7a91d9ac02b619a37125ddfbe15f5ca66) - ensure returning false when getter/setter is missing from property and trying to get/set value *(commit by [@myarichuk](https://github.com/myarichuk))*
+- [`ced48d3`](https://github.com/myarichuk/ObjectTreeWalker/commit/ced48d3263d135598068039a179dfa65ed200096) - add object graph cache to ObjectEnumerator *(commit by [@myarichuk](https://github.com/myarichuk))*
+- [`ee10271`](https://github.com/myarichuk/ObjectTreeWalker/commit/ee102713bc5624c1ce0c5d327c36be8599c81a88) - ensure backing properties will not get iterated on and also no trying to "parse" children of primitive fields/properties *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+### :white_check_mark: Tests
+- [`5db4961`](https://github.com/myarichuk/ObjectTreeWalker/commit/5db4961700afbacbf51a6c77b50b866059408293) - basic tests for ObjectMemberIterator *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+### :wrench: Chores
+- [`b5a918c`](https://github.com/myarichuk/ObjectTreeWalker/commit/b5a918c05681ec587fce8d86f089ee6eb4d856f4) - ensure perf test won't be packaged with "dotnet pack" *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+
 ## [v0.2.1.0] - 2022-09-17
 ### :white_check_mark: Tests
 - [`6b07a38`](https://github.com/myarichuk/ObjectTreeWalker/commit/6b07a38b23228f6517b3547e5450477aa7268d07) - ensure ObjectAccessor tests work on both struct and class objects *(commit by [@myarichuk](https://github.com/myarichuk))*
@@ -49,3 +66,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.0.1.0]: https://github.com/myarichuk/Library.Template/compare/v2.0.0.0...v2.0.1.0
 [v2.1.0.0]: https://github.com/myarichuk/Library.Template/compare/v2.0.1.0...v2.1.0.0
 [v0.2.1.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.0.0...v0.2.1.0
+[v0.3.0.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.1.0...v0.3.0.0
