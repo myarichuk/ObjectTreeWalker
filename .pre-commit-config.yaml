@@ -1,12 +1,4 @@
 repos:
-  - repo: local
-    hooks:
-    #Use dotnet format already installed on your machine
-    - id: dotnet-format
-      name: dotnet-format
-      language: system
-      entry: dotnet format --include
-      types_or: ["c#", "vb"]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.3.0
     hooks:

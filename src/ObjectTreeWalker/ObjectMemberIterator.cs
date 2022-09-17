@@ -29,8 +29,14 @@ namespace ObjectTreeWalker
 						(new IterationInfo(root.Name, obj, rootObjectAccessor), root));
 				}
 
+				#if NET6_0
 				while (traversalQueue.TryDequeue(out var current))
 				{
+				#else
+				while (traversalQueue.Count > 0)
+				{
+					var current = traversalQueue.Dequeue();
+				#endif
 					var objectAccessor = GetCachedObjectAccessor(current.node.Type);
 					var nodeInstance = current.iterationItem.GetValue();
 
