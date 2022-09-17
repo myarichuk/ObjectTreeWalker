@@ -164,7 +164,7 @@ internal class ObjectAccessor
 		if (fieldInfo.FieldType.IsValueType)
 		{
 			emitter.LoadArgument(1);
-			emitter.BranchIfTrue("after");
+			emitter.BranchIfTrue("after"); // if null it will not branch!
 
 			var getDefaultConcrete =
 				GetDefaultCache.GetOrAdd(
@@ -223,7 +223,7 @@ internal class ObjectAccessor
 			emitter.CastClass(_objectType);
 		}
 
-		emitter.CallVirtual(propertyInfo.GetMethod);
+		emitter.Call(propertyInfo.GetMethod);
 
 		if (propertyInfo.PropertyType.IsValueType)
 		{
@@ -281,7 +281,7 @@ internal class ObjectAccessor
 			emitter.CastClass(propertyInfo.PropertyType);
 		}
 
-		emitter.CallVirtual(propertyInfo.SetMethod);
+		emitter.Call(propertyInfo.SetMethod);
 		emitter.Return();
 
 		return emitter.CreateDelegate();
