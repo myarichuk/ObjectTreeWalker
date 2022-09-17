@@ -8,6 +8,7 @@ namespace ObjectTreeWalker;
 /// <summary>
 /// A helper class that replaces reflection access to properties and fields
 /// </summary>
+/// <remarks>This class does not support static fields and properties </remarks>
 // inspired by https://www.codeproject.com/Articles/14560/Fast-Dynamic-Property-Field-Accessors
 internal class ObjectAccessor
 {
@@ -40,12 +41,17 @@ internal class ObjectAccessor
 		}
 	}
 
+	/// <summary>
+	/// Try fetching the field or a property from the object
+	/// </summary>
+	/// <param name="source">object to work on</param>
+	/// <param name="memberName">field or property name</param>
+	/// <param name="value">value fetched or a default value</param>
+	/// <returns>true if fetching successful, false otherwise</returns>
+	/// <exception cref="ArgumentNullException"><paramref name="source"/> or <paramref name="memberName"/> is <see langword="null"/></exception>
 	public bool TryGetValue(object source, string memberName, out object? value)
 	{
-		if (memberName == null)
-		{
-			throw new ArgumentNullException(nameof(memberName));
-		}
+		ValidateThrowIfNeeded(source, memberName);
 
 		value = default;
 		if (!_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
@@ -63,12 +69,16 @@ internal class ObjectAccessor
 		return true;
 	}
 
+	/// <summary>
+	/// Try setting field or property in the object
+	/// </summary>
+	/// <param name="source">object to work on</param>
+	/// <param name="memberName">field or property name</param>
+	/// <param name="value">value to be set</param>
+	/// <returns>true if setting successful, false otherwise</returns>
 	public bool TrySetValue(object source, string memberName, object? value)
 	{
-		if (memberName == null)
-		{
-			throw new ArgumentNullException(nameof(memberName));
-		}
+		ValidateThrowIfNeeded(source, memberName);
 
 		if (!_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
 		{
@@ -83,6 +93,19 @@ internal class ObjectAccessor
 
 		setterPropertyFunc(source, value);
 		return true;
+	}
+
+	private static void ValidateThrowIfNeeded(object source, string memberName)
+	{
+		if (source == null)
+		{
+			throw new ArgumentNullException(nameof(source));
+		}
+
+		if (memberName == null)
+		{
+			throw new ArgumentNullException(nameof(memberName));
+		}
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
