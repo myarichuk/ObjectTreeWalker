@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <Title>Object Tree Walker</Title>
+    <Description>ObjectGraphWalker is a simple utility class that allows traversing over C# object properties, Node.js style</Description>
+    <PackageProjectUrl></PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/myarichuk/ObjectTreeWalker</RepositoryUrl>
+    <PackageTags>object graph;property iteration;property walker;property enumerator;enumerator;object enumerate;object;iterate;iterator</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="*" />
+    <PackageReference Include="Sigil" Version="*" />
+  </ItemGroup>
+
+</Project>
