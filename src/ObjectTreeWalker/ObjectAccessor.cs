@@ -28,62 +28,28 @@ internal class ObjectAccessor
 	/// <exception cref="ArgumentException">$"The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
 	public ObjectAccessor(Type objectType)
 	{
-#if NET6_0_OR_GREATER
+		#if NET6_0_OR_GREATER
 		if (objectType.IsValueType && objectType.IsByRefLike)
 		{
 			throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
-
-/* Unmerged change from project 'ObjectTreeWalker(netstandard2.0)'
-Before:
-		#endif
-After:
-        #endif
-*/
-
-/* Unmerged change from project 'ObjectTreeWalker(netstandard2.0)'
-Before:
-        #endif
-*/
-
 		}
-#endif
+		#endif
 
 		_objectType = objectType;
 		foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
-After:
-		#endif
-* /
-		}
-#endif
-
-	_objectType = objectType(;
-		foreach var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
-*/
-			/* Unmerged change from project 'ObjectTreeWalker(netstandard2.0)'
-			Before:
-					#endif
-			After:
-					#endif
-			*/
-		}
-#endif
-
-		_objectType = objectType;
-		foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public())
 		{
-			if propertyInfo.GetMethod != null)
+			if (propertyInfo.GetMethod != null)
 			{
-	_getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
+				_getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
+			}
 
-			}(
-
-			if propertyInfo.SetMethod != null)
+			if (propertyInfo.SetMethod != null)
 			{
-_setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
+				_setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
 			}
 		}
 
-foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
+		foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 		{
 			_getFieldMethods.Add(fieldInfo.Name, CreateGetFieldFunc(fieldInfo));
 			_setFieldMethods.Add(fieldInfo.Name, CreateSetFieldFunc(fieldInfo));
@@ -98,7 +64,7 @@ foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingF
 	/// <param name="value">value fetched or a default value</param>
 	/// <returns>true if fetching successful, false otherwise</returns>
 	/// <exception cref="ArgumentNullException"><paramref name="source"/> or <paramref name="memberName"/> is <see langword="null"/></exception>
-public bool TryGetValue(object source, string memberName, out object? value)
+	public bool TryGetValue(object source, string memberName, out object? value)
 	{
 		ValidateThrowIfNeeded(source, memberName);
 
@@ -125,7 +91,7 @@ public bool TryGetValue(object source, string memberName, out object? value)
 	/// <param name="memberName">field or property name</param>
 	/// <param name="value">value to be set</param>
 	/// <returns>true if setting successful, false otherwise</returns>
-public bool TrySetValue(object source, string memberName, object? value)
+	public bool TrySetValue(object source, string memberName, object? value)
 	{
 		ValidateThrowIfNeeded(source, memberName);
 
@@ -144,7 +110,7 @@ public bool TrySetValue(object source, string memberName, object? value)
 		return true;
 	}
 
-private static void ValidateThrowIfNeeded(object source, string memberName)
+	private static void ValidateThrowIfNeeded(object source, string memberName)
 	{
 		if (source == null)
 		{
@@ -158,16 +124,16 @@ private static void ValidateThrowIfNeeded(object source, string memberName)
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-private static T? GetDefault<T>() => default;
+	private static T? GetDefault<T>() => default;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-private static string GetMethodName(string prefix, MemberInfo memberInfo)
+	private static string GetMethodName(string prefix, MemberInfo memberInfo)
 	{
 		var className = memberInfo.ReflectedType?.AssemblyQualifiedName ?? string.Empty;
 		return $"{prefix}{className}{memberInfo.Name}";
 	}
 
-private Func<object, object> CreateGetFieldFunc(FieldInfo fieldInfo)
+	private Func<object, object> CreateGetFieldFunc(FieldInfo fieldInfo)
 	{
 		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", fieldInfo));
 
@@ -192,7 +158,7 @@ private Func<object, object> CreateGetFieldFunc(FieldInfo fieldInfo)
 		return emitter.CreateDelegate();
 	}
 
-private Action<object, object> CreateSetFieldFunc(FieldInfo fieldInfo)
+	private Action<object, object> CreateSetFieldFunc(FieldInfo fieldInfo)
 	{
 		var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", fieldInfo));
 		var afterLabel = emitter.DefineLabel("after");
@@ -245,7 +211,7 @@ private Action<object, object> CreateSetFieldFunc(FieldInfo fieldInfo)
 		return emitter.CreateDelegate();
 	}
 
-private Func<object, object> CreateGetPropertyFunc(PropertyInfo propertyInfo)
+	private Func<object, object> CreateGetPropertyFunc(PropertyInfo propertyInfo)
 	{
 		var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", propertyInfo));
 
@@ -271,7 +237,7 @@ private Func<object, object> CreateGetPropertyFunc(PropertyInfo propertyInfo)
 		return emitter.CreateDelegate();
 	}
 
-private Action<object, object> CreateSetPropertyFunc(PropertyInfo propertyInfo)
+	private Action<object, object> CreateSetPropertyFunc(PropertyInfo propertyInfo)
 	{
 		var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", propertyInfo));
 		var afterLabel = emitter.DefineLabel("after");
@@ -323,4 +289,3 @@ private Action<object, object> CreateSetPropertyFunc(PropertyInfo propertyInfo)
 		return emitter.CreateDelegate();
 	}
 }
-
