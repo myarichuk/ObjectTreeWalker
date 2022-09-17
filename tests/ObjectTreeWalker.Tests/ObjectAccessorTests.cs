@@ -13,6 +13,28 @@ namespace ObjectTreeWalker.Tests
 			public PrivateFooBar Bar { get; set; } = new();
 		}
 
+		internal class PublicFooBarNoSet
+		{
+			public int Foo { get; } = 123;
+
+			public int Test123 = 555;
+
+			public PrivateFooBar Bar { get; set; } = new();
+		}
+
+		internal class PublicFooBarNoGet
+		{
+			public int Foo
+			{
+				set => _foo = value;
+			}
+
+			public int Test123 = 555;
+			private int _foo;
+
+			public PrivateFooBar Bar { get; set; } = new();
+		}
+
 		internal struct PublicFooBarStruct
 		{
 			public int Foo { get; set; } = 123;
@@ -77,6 +99,13 @@ namespace ObjectTreeWalker.Tests
 			Assert.Equal(123, value);
 		}
 
+		[Fact]
+		public void Should_fail_get_public_value_no_get()
+		{
+			var accessor = new ObjectAccessor(typeof(PublicFooBarNoGet));
+			Assert.False(accessor.TryGetValue(new PublicFooBarNoGet(), "Foo", out var value));
+		}
+
 		[Theory]
 		[InlineData(typeof(PublicFooBar))]
 		[InlineData(typeof(PublicFooBarStruct))]
@@ -135,6 +164,15 @@ namespace ObjectTreeWalker.Tests
 			accessor.TrySetValue(obj, "Foo", 345);
 
 			Assert.Equal(345, ((dynamic)obj).Foo);
+		}
+
+		[Fact]
+		public void Should_fail_setting_property_without_set()
+		{
+			var accessor = new ObjectAccessor(typeof(PublicFooBarNoSet));
+			var obj = new PublicFooBarNoSet();
+
+			Assert.False(accessor.TrySetValue(obj, "Foo", 345));
 		}
 
 		[Theory]

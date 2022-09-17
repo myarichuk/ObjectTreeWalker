@@ -36,8 +36,15 @@ internal class ObjectAccessor
 		_objectType = objectType;
 		foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 		{
-			_getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
-			_setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
+			if (propertyInfo.GetMethod != null)
+			{
+				_getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
+			}
+
+			if (propertyInfo.SetMethod != null)
+			{
+				_setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
+			}
 		}
 
 		foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
