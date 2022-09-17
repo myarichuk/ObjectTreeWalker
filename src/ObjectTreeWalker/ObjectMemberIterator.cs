@@ -14,9 +14,11 @@ namespace ObjectTreeWalker
 		private static readonly ObjectPool<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>> TraversalQueuePool =
 			new DefaultObjectPoolProvider().Create<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>>();
 
+		private readonly ObjectEnumerator _objectEnumerator = new();
+
 		public void Traverse(object obj, Action<IterationInfo> visitor)
 		{
-			var objectGraph = ObjectEnumerator.Enumerate(obj.GetType());
+			var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
 
 			var traversalQueue = TraversalQueuePool.Get();
 			try
