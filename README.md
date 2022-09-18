@@ -1,7 +1,9 @@
-# ObjectGraphWalker
+[![Build & Test](https://github.com/myarichuk/ObjectTreeWalker/actions/workflows/on-pull-request.yml/badge.svg)](https://github.com/myarichuk/ObjectTreeWalker/actions/workflows/on-pull-request.yml)
+
+# The What
 ObjectGraphWalker is a simple utility library that allows traversing over C# object properties, Node.js style. Under the hood, the class generates accessors that would speed up the traversal.
 
-## How to use
+## The How
 Simply instantiate the class and use the ``ObjectMemberIterator::Traverse()`` method.
 ```cs
 var someObject = new SomeObject();
