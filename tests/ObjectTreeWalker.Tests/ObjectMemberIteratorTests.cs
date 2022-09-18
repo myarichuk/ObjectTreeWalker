@@ -36,6 +36,15 @@ namespace ObjectTreeWalker.Tests
 				item => Assert.Equal(333, item));
 		}
 
+		[Fact]
+		public void Can_iterate_flat_class_with_backing_fields()
+		{
+			var iterator = new ObjectMemberIterator(false);
+			var propertyValues = new List<int>();
+
+			iterator.Traverse(new FooBar(), ii => propertyValues.Add((int)ii.GetValue()));
+			Assert.Equal(6, propertyValues.Count);
+		}
 
 		[Fact]
 		public void Can_iterate_complex_class()
