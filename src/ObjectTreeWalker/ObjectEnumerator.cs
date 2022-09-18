@@ -9,19 +9,32 @@ namespace ObjectTreeWalker
 	/// </summary>
 	internal class ObjectEnumerator
 	{
-		public struct Settings
+		/// <summary>
+		/// Iteration Settings
+		/// </summary>
+		public class Settings
 		{
+			/// <summary>
+			/// Gets or sets a value indicating whether to ignore compiler generated fields or not
+			/// </summary>
 			public bool IgnoreCompilerGenerated { get; set; }
 		}
 
 		private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
 		private readonly Settings _settings;
 
-		public ObjectEnumerator(in Settings settings)
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectEnumerator"/> class
+		/// </summary>
+		/// <param name="settings">settings that might modify how iteration is done</param>
+		public ObjectEnumerator(Settings settings)
 		{
 			_settings = settings;
 		}
 
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectEnumerator"/> class
+		/// </summary>
 		public ObjectEnumerator()
 		{
 			_settings = new()
