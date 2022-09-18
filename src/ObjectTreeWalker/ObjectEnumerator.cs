@@ -7,9 +7,41 @@ namespace ObjectTreeWalker
 	/// <summary>
 	/// Exposes helper function to enumerate types and fetch member graph
 	/// </summary>
-	internal static class ObjectEnumerator
+	internal class ObjectEnumerator
 	{
+		/// <summary>
+		/// Iteration Settings
+		/// </summary>
+		public class Settings
+		{
+			/// <summary>
+			/// Gets or sets a value indicating whether to ignore compiler generated fields or not
+			/// </summary>
+			public bool IgnoreCompilerGenerated { get; set; }
+		}
+
 		private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
+		private readonly Settings _settings;
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectEnumerator"/> class
+		/// </summary>
+		/// <param name="settings">settings that might modify how iteration is done</param>
+		public ObjectEnumerator(Settings settings)
+		{
+			_settings = settings;
+		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectEnumerator"/> class
+		/// </summary>
+		public ObjectEnumerator()
+		{
+			_settings = new()
+			{
+				IgnoreCompilerGenerated = true,
+			};
+		}
 
 		/// <summary>
 		/// Enumerate and fetch property/field graph of the type
@@ -17,7 +49,7 @@ namespace ObjectTreeWalker
 		/// <param name="type">the type to enumerate</param>
 		/// <returns>object graph</returns>
 		/// <exception cref="OverflowException">The object graph cache contains too many elements.</exception>
-		public static ObjectGraph Enumerate(Type type) =>
+		public ObjectGraph Enumerate(Type type) =>
 			ObjectGraphCache.GetOrAdd(type, t =>
 			{
 				var roots = EnumerateChildMembers(t).Select(memberData =>
@@ -25,7 +57,7 @@ namespace ObjectTreeWalker
 				return new ObjectGraph(t, roots);
 			});
 
-		private static ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet)
+		private ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet)
 		{
 			var ogn = new ObjectGraphNode(member, parent)
 			{
@@ -45,7 +77,7 @@ namespace ObjectTreeWalker
 			return ogn;
 		}
 
-		private static IEnumerable<(MemberInfo mi, bool canGet, bool canSet)> EnumerateChildMembers(Type type)
+		private IEnumerable<(MemberInfo mi, bool canGet, bool canSet)> EnumerateChildMembers(Type type)
 		{
 			if (type.IsPrimitive)
 			{
@@ -60,10 +92,12 @@ namespace ObjectTreeWalker
 			foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
 			{
 				// ignore backing property, if the attribute is not true then it is a backing property
-				if (field.GetCustomAttribute<CompilerGeneratedAttribute>() == null)
+				if (_settings.IgnoreCompilerGenerated && field.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
 				{
-					yield return (field, true, true);
+					continue;
 				}
+
+				yield return (field, true, true);
 			}
 		}
 	}
