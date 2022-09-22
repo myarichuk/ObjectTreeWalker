@@ -10,15 +10,15 @@ namespace ObjectTreeWalker
 	public class ObjectMemberIterator
 	{
 		private static readonly ConcurrentDictionary<Type, ObjectAccessor> ObjectAccessorCache = new();
-		private static readonly ObjectPool<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>> TraversalQueuePool =
-			new DefaultObjectPoolProvider().Create<Queue<(IterationInfo iterationItem, ObjectGraphNode node)>>();
+		private static readonly ObjectPool<Queue<(IterationInfo IterationItem, ObjectGraphNode Node)>> TraversalQueuePool =
+			new DefaultObjectPoolProvider().Create<Queue<(IterationInfo IterationItem, ObjectGraphNode Node)>>();
 
 		private readonly ObjectEnumerator _objectEnumerator;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ObjectMemberIterator"/> class.
 		/// </summary>
-		/// <param name="ignoreCompilerGenerated"></param>
+		/// <param name="ignoreCompilerGenerated">ignore compiler generated fields (like auto properties)</param>
 		public ObjectMemberIterator(bool ignoreCompilerGenerated = true)
 		{
 			_objectEnumerator = new(new ObjectEnumerator.Settings
@@ -27,6 +27,11 @@ namespace ObjectTreeWalker
 			});
 		}
 
+		/// <summary>
+		/// Traverse over object members and possibly apply action to mutate the data
+		/// </summary>
+		/// <param name="obj">object to traverse it's members</param>
+		/// <param name="visitor">a lambda that encapsulates an action to apply to each member property or field</param>
 		public void Traverse(object obj, Action<IterationInfo> visitor)
 		{
 			var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
@@ -42,26 +47,26 @@ namespace ObjectTreeWalker
 						(new IterationInfo(root.Name, obj, rootObjectAccessor), root));
 				}
 
-				#if NET6_0
+#if NET6_0
 				while (traversalQueue.TryDequeue(out var current))
 				{
-				#else
+#else
 				while (traversalQueue.Count > 0)
 				{
 					var current = traversalQueue.Dequeue();
-				#endif
-					var objectAccessor = GetCachedObjectAccessor(current.node.Type);
-					var nodeInstance = current.iterationItem.GetValue();
+#endif
+					var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
+					var nodeInstance = current.IterationItem.GetValue();
 
 					// we are only interested in iterating over the "data" vertices
 					// otherwise, we would get "foo(obj)" and then all foo's properties
-					if (current.node.Children.Count == 0)
+					if (current.Node.Children.Count == 0)
 					{
-						visitor(current.iterationItem);
+						visitor(current.IterationItem);
 					}
 					else
 					{
-						foreach (var child in current.node.Children)
+						foreach (var child in current.Node.Children)
 						{
 							traversalQueue.Enqueue(
 								(new IterationInfo(child.Name, nodeInstance!, objectAccessor), child));

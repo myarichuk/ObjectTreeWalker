@@ -39,11 +39,14 @@ namespace ObjectTreeWalker.Tests
 		[Fact]
 		public void Can_iterate_flat_class_with_backing_fields()
 		{
-			var iterator = new ObjectMemberIterator(false);
-			var propertyValues = new List<int>();
+			for (int i = 0; i < 2; i++)
+			{
+				var iterator = new ObjectMemberIterator(false);
+				var propertyValues = new List<int>();
 
-			iterator.Traverse(new FooBar(), ii => propertyValues.Add((int)ii.GetValue()));
-			Assert.Equal(6, propertyValues.Count);
+				iterator.Traverse(new FooBar(), ii => propertyValues.Add((int)ii.GetValue()));
+				Assert.Equal(6, propertyValues.Count);
+			}
 		}
 
 		[Fact]
