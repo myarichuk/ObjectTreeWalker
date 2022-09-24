@@ -8,14 +8,14 @@ var someObject = new SomeObject();
 var iterator = new ObjectMemberIterator();
 iterator.Traverse(someObject, prop =>
 {
-	var propertyValue = prop.GetValue();
-	prop.SetValue(/* some other value */);
+    var propertyValue = prop.GetValue();
+    prop.SetValue(/* some other value */);
 });
 
 ```
 
 ## Notes
-* The iterator will read public and private properties and fields but will ignore any static members of the object. 
+* The iterator will read public and private properties and fields but will ignore any static members of the object.
 * The iterator will work on both value and reference types
 * The iterator will ignore backing fields for "auto properties" and it will ignore any compiler generated fields such as closures
 * The iterator is still WIP and should be more thoroughly tested
