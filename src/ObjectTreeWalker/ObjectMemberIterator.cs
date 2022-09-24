@@ -81,7 +81,7 @@ namespace ObjectTreeWalker
                 foreach (var root in objectGraph.Roots)
                 {
                     traversalQueue.Enqueue(
-                        (new (root.Name, obj, rootObjectAccessor, root.MemberType), root));
+                        (new(root.Name, obj, rootObjectAccessor, root.MemberType), root));
                 }
 
 #if NET6_0

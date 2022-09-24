@@ -28,12 +28,12 @@ internal class ObjectAccessor
     /// <exception cref="ArgumentException">$"The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
     public ObjectAccessor(Type objectType)
     {
-        #if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
         if (objectType.IsValueType && objectType.IsByRefLike)
         {
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
         }
-        #endif
+#endif
 
         _objectType = objectType;
         foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))

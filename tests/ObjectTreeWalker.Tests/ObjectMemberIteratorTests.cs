@@ -24,16 +24,16 @@ namespace ObjectTreeWalker.Tests
 
         public class FooBarFields
         {
-            public int Foo1  = 111;
-            public int Foo2  = 222;
-            public int Foo3  = 333;
+            public int Foo1 = 111;
+            public int Foo2 = 222;
+            public int Foo3 = 333;
         }
 
         public class ComplexFooBarFields
         {
-            public int Foo1  = 111;
-            public FooBarFields Obj  = new FooBarFields();
-            public int Foo4  = 456;
+            public int Foo1 = 111;
+            public FooBarFields Obj = new FooBarFields();
+            public int Foo4 = 456;
         }
 
         [Fact]

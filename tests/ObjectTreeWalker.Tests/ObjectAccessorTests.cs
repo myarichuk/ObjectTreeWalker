@@ -143,7 +143,7 @@ namespace ObjectTreeWalker.Tests
         }
 
 
-        [Theory]
+        [Fact]
         [InlineData]
         public void Can_get_private_value_type_field()
         {

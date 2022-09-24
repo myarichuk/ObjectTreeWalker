@@ -73,10 +73,10 @@ namespace ObjectTreeWalker
             {
                 CanGet = canGet,
                 CanSet = canSet,
-                MemberType = memberType
+                MemberType = memberType,
             };
 
-            var children = EnumerateChildMembers(member.GetUnderlyingType()!)
+            var children = EnumerateChildMembers((Type)(member.GetUnderlyingType()!))
                 .Select(memberData =>
                     new ObjectGraphNode(memberData.mi, ogn)
                     {
