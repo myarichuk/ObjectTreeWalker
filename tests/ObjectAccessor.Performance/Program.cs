@@ -2,6 +2,13 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using FastMember;
 using ObjectAccessor = ObjectTreeWalker.ObjectAccessor;
+// ReSharper disable CheckNamespace
+// ReSharper disable ExceptionNotDocumentedOptional
+// ReSharper disable ExceptionNotDocumented
+#pragma warning disable CS8602
+#pragma warning disable CS8604
+#pragma warning disable CS8605
+#pragma warning disable CS1591
 
 
 public class Foobar

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 // ReSharper disable TooManyDeclarations
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumented
+#pragma warning disable CS8605
 #pragma warning disable CS1591
 
 namespace ObjectTreeWalker.Tests
