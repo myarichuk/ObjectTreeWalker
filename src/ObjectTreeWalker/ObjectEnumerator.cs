@@ -12,21 +12,12 @@ namespace ObjectTreeWalker
         /// <summary>
         /// Iteration Settings
         /// </summary>
-        public record Settings
+        public record Settings(bool IgnoreCompilerGenerated = true)
         {
-            public Settings()
-            {
-            }
-
-            public Settings(bool ignoreCompilerGenerated)
-            {
-                IgnoreCompilerGenerated = ignoreCompilerGenerated;
-            }
-
             /// <summary>
             /// Gets or sets a value indicating whether to ignore compiler generated fields or not
             /// </summary>
-            public bool IgnoreCompilerGenerated { get; set; }
+            public bool IgnoreCompilerGenerated { get; set; } = IgnoreCompilerGenerated;
         }
 
         private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
@@ -72,7 +63,7 @@ namespace ObjectTreeWalker
             ObjectGraphCache.GetOrAdd(type, t =>
             {
                 var roots = EnumerateChildMembers(t).Select(memberData =>
-                    EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet, memberData.memberType));
+                    EnumerateMember(memberData.MemberInfo, null, memberData.CanGet, memberData.CanSet, memberData.MemberType));
                 return new ObjectGraph(t, roots);
             });
 
@@ -87,10 +78,10 @@ namespace ObjectTreeWalker
 
             var children = EnumerateChildMembers((Type)(member.GetUnderlyingType()!))
                 .Select(memberData =>
-                    new ObjectGraphNode(memberData.mi, ogn)
+                    new ObjectGraphNode(memberData.MemberInfo, ogn)
                     {
-                        CanGet = memberData.canGet,
-                        CanSet = memberData.canSet,
+                        CanGet = memberData.CanGet,
+                        CanSet = memberData.CanSet,
                         MemberType = memberType,
                     });
 
@@ -98,7 +89,7 @@ namespace ObjectTreeWalker
             return ogn;
         }
 
-        private IEnumerable<(MemberInfo mi, bool canGet, bool canSet, MemberType memberType)> EnumerateChildMembers(Type type)
+        private IEnumerable<(MemberInfo MemberInfo, bool CanGet, bool CanSet, MemberType MemberType)> EnumerateChildMembers(Type type)
         {
             if (type.IsPrimitive)
             {

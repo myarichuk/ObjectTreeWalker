@@ -38,7 +38,7 @@ namespace ObjectTreeWalker
         {
             if (_enumeratorSettings == null)
             {
-                _enumeratorSettings = new ObjectEnumerator.Settings(ignoreCompilerGenerated: ignoreCompilerGenerated);
+                _enumeratorSettings = new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated);
                 _objectEnumerator = new(_enumeratorSettings);
                 return;
             }
