@@ -18,6 +18,8 @@ internal record ObjectGraphNode
 
     public bool CanSet { get; internal set; }
 
+    public MemberType MemberType { get; internal set; }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ObjectGraphNode"/> class
     /// </summary>

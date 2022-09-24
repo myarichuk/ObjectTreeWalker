@@ -5,6 +5,19 @@ using Microsoft.Extensions.ObjectPool;
 namespace ObjectTreeWalker
 {
     /// <summary>
+    /// Signature of the visitor function
+    /// </summary>
+    /// <param name="memberAccessor">member accessor instance for currently visited member</param>
+    public delegate void VisitorFunc(in MemberAccessor memberAccessor);
+
+    /// <summary>
+    /// Signature of the visit predicate function
+    /// </summary>
+    /// <param name="memberAccessor">member accessor instance for currently visited member</param>
+    /// <returns>True if we should continue traversing, false otherwise</returns>
+    public delegate bool PredicateFunc(in MemberAccessor memberAccessor);
+
+    /// <summary>
     /// A class that allows recursive iteration over object members (BFS traversal)
     /// </summary>
     public class ObjectMemberIterator
@@ -52,12 +65,13 @@ namespace ObjectTreeWalker
         /// Traverse over object members and possibly apply action to mutate the data
         /// </summary>
         /// <param name="obj">object to traverse it's members</param>
-        /// <param name="visitor">a lambda that encapsulates an action to apply to each member property or field</param>
+        /// <param name="visitorFunc">a lambda that encapsulates an action to apply to each member property or field</param>
         /// <param name="predicate">An optional predicate to ignore some object members when traversing (return false for certain iteration item to skip it)</param>
-        public void Traverse(object obj, Action<MemberAccessor> visitor, Func<MemberAccessor, bool>? predicate = null)
+        public void Traverse(object obj, VisitorFunc visitorFunc, PredicateFunc? predicate = null)
         {
             var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
-            predicate ??= _ => true;
+
+            predicate ??= (in MemberAccessor _) => true;
 
             var traversalQueue = TraversalQueuePool.Get();
             try
@@ -67,7 +81,7 @@ namespace ObjectTreeWalker
                 foreach (var root in objectGraph.Roots)
                 {
                     traversalQueue.Enqueue(
-                        (new MemberAccessor(root.Name, obj, rootObjectAccessor), root));
+                        (new (root.Name, obj, rootObjectAccessor, root.MemberType), root));
                 }
 
 #if NET6_0
@@ -90,14 +104,14 @@ namespace ObjectTreeWalker
                     // otherwise, we would get "foo(obj)" and then all foo's properties
                     if (current.Node.Children.Count == 0)
                     {
-                        visitor(current.IterationItem);
+                        visitorFunc(current.IterationItem);
                     }
                     else
                     {
                         foreach (var child in current.Node.Children)
                         {
                             traversalQueue.Enqueue(
-                                (new MemberAccessor(child.Name, nodeInstance!, objectAccessor), child));
+                                (new(child.Name, nodeInstance!, objectAccessor, child.MemberType), child));
                         }
                     }
                 }
@@ -111,49 +125,5 @@ namespace ObjectTreeWalker
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ObjectAccessor GetCachedObjectAccessor(Type type) =>
             ObjectAccessorCache.GetOrAdd(type, t => new ObjectAccessor(t));
-
-        /// <summary>
-        /// A member accessor that allows to get and set member values during iteration
-        /// </summary>
-        public class MemberAccessor
-        {
-            private readonly ObjectAccessor _objectAccessor;
-            private readonly object _object;
-            private readonly string _memberName;
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="MemberAccessor"/> class.
-            /// </summary>
-            /// <param name="memberName">Member (field/property) name</param>
-            /// <param name="obj">parent object instance</param>
-            /// <param name="objectAccessor">internal object accessor that allows accessing members</param>
-            /// <exception cref="ArgumentNullException">Gets thrown if any of constructor parameters is null</exception>
-            internal MemberAccessor(string memberName, object obj, ObjectAccessor objectAccessor)
-            {
-                _memberName = memberName ?? throw new ArgumentNullException(nameof(memberName));
-                _object = obj ?? throw new ArgumentNullException(nameof(obj));
-                _objectAccessor = objectAccessor ?? throw new ArgumentNullException(nameof(objectAccessor));
-            }
-
-            /// <summary>
-            /// Gets member name
-            /// </summary>
-            public string Name => _memberName;
-
-            /// <summary>
-            /// Accesses and fetches member value
-            /// </summary>
-            /// <returns>Member value</returns>
-            public object? GetValue() =>
-                !_objectAccessor.TryGetValue(_object, _memberName, out var value) ?
-                    null : value;
-
-            /// <summary>
-            /// Accesses and sets member value
-            /// </summary>
-            /// <param name="newValue">New member value</param>
-            public void SetValue(object newValue) =>
-                _objectAccessor.TrySetValue(_object, _memberName, newValue);
-        }
     }
 }

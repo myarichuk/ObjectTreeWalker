@@ -63,16 +63,17 @@ namespace ObjectTreeWalker
             ObjectGraphCache.GetOrAdd(type, t =>
             {
                 var roots = EnumerateChildMembers(t).Select(memberData =>
-                    EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet));
+                    EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet, memberData.memberType));
                 return new ObjectGraph(t, roots);
             });
 
-        private ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet)
+        private ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet, MemberType memberType)
         {
             var ogn = new ObjectGraphNode(member, parent)
             {
                 CanGet = canGet,
                 CanSet = canSet,
+                MemberType = memberType
             };
 
             var children = EnumerateChildMembers(member.GetUnderlyingType()!)
@@ -81,13 +82,14 @@ namespace ObjectTreeWalker
                     {
                         CanGet = memberData.canGet,
                         CanSet = memberData.canSet,
+                        MemberType = memberType,
                     });
 
             ogn.Children.AddRange(children);
             return ogn;
         }
 
-        private IEnumerable<(MemberInfo mi, bool canGet, bool canSet)> EnumerateChildMembers(Type type)
+        private IEnumerable<(MemberInfo mi, bool canGet, bool canSet, MemberType memberType)> EnumerateChildMembers(Type type)
         {
             if (type.IsPrimitive)
             {
@@ -96,7 +98,7 @@ namespace ObjectTreeWalker
 
             foreach (var property in type.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
             {
-                yield return (property, property.GetMethod != null, property.SetMethod != null);
+                yield return (property, property.GetMethod != null, property.SetMethod != null, MemberType.Property);
             }
 
             foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
@@ -107,7 +109,7 @@ namespace ObjectTreeWalker
                     continue;
                 }
 
-                yield return (field, true, true);
+                yield return (field, true, true, MemberType.Field);
             }
         }
     }
