@@ -8,24 +8,32 @@ Simply instantiate the class and use the ``ObjectMemberIterator::Traverse()`` me
 ```cs
 var someObject = new SomeObject();
 var iterator = new ObjectMemberIterator();
-iterator.Traverse(someObject, prop =>
+iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 {
-    var propertyValue = prop.GetValue();
+    var propertyValue = accessor.GetValue();
     prop.SetValue(/* some other value */);
 });
 
 ```
 
-Note, it is also possible to use ``predicate`` parameter in the ``ObjectMemberIterator::Traverse()`` method to exclude some members from the iteration. The following example iterates over all fields and properties *if* their name is not Foo1
+Note 1: it is also possible to use ``predicate`` parameter in the ``ObjectMemberIterator::Traverse()`` method to exclude some members from the iteration. The following example iterates over all fields and properties *if* their name is not Foo1
 ```cs
 var someObject = new SomeObject();
 var iterator = new ObjectMemberIterator();
-iterator.Traverse(someObject, prop =>
+iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 {
-    var propertyValue = prop.GetValue();
+    var propertyValue = accessor.GetValue();
     prop.SetValue(/* some other value */);
-}, iterationItem => iterationItem.Name != "Foo1");
+}, (in MemberAccessor accessor) => accessor.Name != "Foo1");
 
+```
+
+Note 2: it is possible to filter for member types (iterate only on properties or fields), like shown in the following code
+```cs
+iterator.Traverse(someObject, (in MemberAccessor accessor) =>
+{
+    // do some operations or mutate data
+}, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
 ```
 
 ## Notes
