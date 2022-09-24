@@ -3,7 +3,7 @@ namespace ObjectTreeWalker;
 /// <summary>
 /// An object to hold information about property/field
 /// </summary>
-internal readonly struct MemberInfo
+internal readonly struct ObjectMemberInfo
 {
     /// <summary>
     /// Gets member name
@@ -21,13 +21,13 @@ internal readonly struct MemberInfo
     public readonly object Instance;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MemberInfo"/> struct.
+    /// Initializes a new instance of the <see cref="ObjectMemberInfo"/> struct.
     /// </summary>
     /// <param name="name">member name</param>
     /// <param name="memberType">member type (property/field)</param>
     /// <param name="instance">instance of the object the member belongs</param>
     /// <exception cref="ArgumentNullException">any of constructor parameters is null</exception>
-    public MemberInfo(string name, MemberType memberType, object instance)
+    public ObjectMemberInfo(string name, MemberType memberType, object instance)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         MemberType = memberType;

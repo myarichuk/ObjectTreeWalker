@@ -6,7 +6,7 @@ namespace ObjectTreeWalker;
 public readonly struct MemberAccessor
 {
     private readonly ObjectAccessor _objectAccessor;
-    private readonly MemberInfo _memberInfo;
+    private readonly ObjectMemberInfo _memberInfo;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MemberAccessor"/> struct.
@@ -14,7 +14,7 @@ public readonly struct MemberAccessor
     /// <param name="memberInfo">Information about the object member (property/field)</param>
     /// <param name="objectAccessor">internal object accessor that allows accessing members</param>
     /// <exception cref="ArgumentNullException">Gets thrown if any of constructor parameters is null</exception>
-    internal MemberAccessor(in MemberInfo memberInfo, ObjectAccessor objectAccessor)
+    internal MemberAccessor(in ObjectMemberInfo memberInfo, ObjectAccessor objectAccessor)
     {
         _objectAccessor = objectAccessor ?? throw new ArgumentNullException(nameof(objectAccessor));
         _memberInfo = memberInfo;
