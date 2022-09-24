@@ -70,5 +70,25 @@ namespace ObjectTreeWalker.Tests
                 item => Assert.Equal(222, item),
                 item => Assert.Equal(333, item));
         }
+
+        [Fact]
+        public void Can_skip_some_members()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyValues = new List<int>();
+
+            iterator.Traverse(new ComplexFooBar(), ii =>
+            {
+                var value = ii.GetValue();
+
+                // all of "primitive" properties are of type int so this is correct
+                propertyValues.Add((int)value);
+            }, iterationItem => iterationItem.Name != "Foo1");
+
+            Assert.Collection(propertyValues,
+                item => Assert.Equal(456, item),
+                item => Assert.Equal(222, item),
+                item => Assert.Equal(333, item));
+        }
     }
 }
