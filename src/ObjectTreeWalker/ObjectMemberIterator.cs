@@ -38,10 +38,7 @@ namespace ObjectTreeWalker
         {
             if (_enumeratorSettings == null)
             {
-                _enumeratorSettings = new ObjectEnumerator.Settings
-                {
-                    IgnoreCompilerGenerated = ignoreCompilerGenerated,
-                };
+                _enumeratorSettings = new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated);
                 _objectEnumerator = new(_enumeratorSettings);
                 return;
             }
@@ -67,6 +64,7 @@ namespace ObjectTreeWalker
         /// <param name="obj">object to traverse it's members</param>
         /// <param name="visitorFunc">a lambda that encapsulates an action to apply to each member property or field</param>
         /// <param name="predicate">An optional predicate to ignore some object members when traversing (return false for certain iteration item to skip it)</param>
+        /// <exception cref="InvalidOperationException">Invalid (null) item in the iteration queue. This is not supposed to happen and is likely an issue that should be reported.</exception>
         public void Traverse(object obj, VisitorFunc visitorFunc, PredicateFunc? predicate = null)
         {
             var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
@@ -81,7 +79,7 @@ namespace ObjectTreeWalker
                 foreach (var root in objectGraph.Roots)
                 {
                     traversalQueue.Enqueue(
-                        (new (root.Name, obj, rootObjectAccessor, root.MemberType), root));
+                        (new(new ObjectMemberInfo(root.Name, root.MemberType, obj), rootObjectAccessor), root));
                 }
 
 #if NET6_0
@@ -94,6 +92,11 @@ namespace ObjectTreeWalker
 #endif
                     var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
                     var nodeInstance = current.IterationItem.GetValue();
+
+                    if (nodeInstance == null)
+                    {
+                        throw new InvalidOperationException("Invalid (null) item in the iteration queue. This is not supposed to happen and is likely a bug.");
+                    }
 
                     if (!predicate(current.IterationItem))
                     {
@@ -111,7 +114,7 @@ namespace ObjectTreeWalker
                         foreach (var child in current.Node.Children)
                         {
                             traversalQueue.Enqueue(
-                                (new(child.Name, nodeInstance!, objectAccessor, child.MemberType), child));
+                                (new(new ObjectMemberInfo(child.Name, child.MemberType, nodeInstance), objectAccessor), child));
                         }
                     }
                 }

@@ -1,3 +1,8 @@
+// ReSharper disable ConvertToAutoProperty
+// ReSharper disable TooManyDeclarations
+// ReSharper disable ExceptionNotDocumented
+#pragma warning disable CS0649
+#pragma warning disable CS1591
 namespace ObjectTreeWalker.Tests
 {
     public class ObjectEnumeratorTests

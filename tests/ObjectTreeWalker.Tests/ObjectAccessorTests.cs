@@ -1,4 +1,11 @@
 using System.Reflection;
+// ReSharper disable InconsistentNaming
+// ReSharper disable ExceptionNotDocumented
+// ReSharper disable ExceptionNotDocumentedOptional
+// ReSharper disable ComplexConditionExpression
+#pragma warning disable CS8604
+#pragma warning disable CS0414
+#pragma warning disable CS1591
 
 namespace ObjectTreeWalker.Tests
 {
@@ -143,8 +150,7 @@ namespace ObjectTreeWalker.Tests
         }
 
 
-        [Theory]
-        [InlineData]
+        [Fact]
         public void Can_get_private_value_type_field()
         {
             var accessor = new ObjectAccessor(typeof(PrivateFooBar));
@@ -161,9 +167,9 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            accessor.TrySetValue(obj, "Foo", 345);
+            accessor.TrySetValue(obj!, "Foo", 345);
 
-            Assert.Equal(345, ((dynamic)obj).Foo);
+            Assert.Equal(345, ((dynamic)obj!).Foo);
         }
 
         [Fact]
@@ -183,7 +189,7 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            Assert.NotNull(((dynamic)obj).Bar); //sanity check
+            Assert.NotNull(((dynamic)obj!).Bar); //sanity check
             accessor.TrySetValue(obj, "Bar", null);
             Assert.Null(((dynamic)obj).Bar);
         }
@@ -196,9 +202,9 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            accessor.TrySetValue(obj, "Foo", null);
+            accessor.TrySetValue(obj!, "Foo", null);
 
-            Assert.Equal(0, ((dynamic)obj).Foo);
+            Assert.Equal(0, ((dynamic)obj!).Foo);
         }
 
         [Theory]
@@ -209,9 +215,9 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            accessor.TrySetValue(obj, "Test123", null);
+            accessor.TrySetValue(obj!, "Test123", null);
 
-            Assert.Equal(0, ((dynamic)obj).Test123);
+            Assert.Equal(0, ((dynamic)obj!).Test123);
         }
 
         [Theory]
@@ -222,9 +228,9 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            accessor.TrySetValue(obj, "Test123", 345);
+            accessor.TrySetValue(obj!, "Test123", 345);
 
-            Assert.Equal(345, ((dynamic)obj).Test123);
+            Assert.Equal(345, ((dynamic)obj!).Test123);
         }
 
         [Theory]
@@ -238,7 +244,7 @@ namespace ObjectTreeWalker.Tests
             var accessor = new ObjectAccessor(type);
             var obj = Activator.CreateInstance(type);
 
-            accessor.TrySetValue(obj, "Foo", 345);
+            accessor.TrySetValue(obj!, "Foo", 345);
 
             Assert.Equal(345, (int)propertyInfo.GetValue(obj)!);
         }
@@ -256,7 +262,7 @@ namespace ObjectTreeWalker.Tests
 
             Assert.NotNull(propertyInfo.GetValue(obj));
 
-            accessor.TrySetValue(obj, "Bar", null);
+            accessor.TrySetValue(obj!, "Bar", null);
 
             Assert.Null(propertyInfo.GetValue(obj));
         }

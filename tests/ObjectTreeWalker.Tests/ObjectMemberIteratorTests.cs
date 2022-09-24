@@ -3,6 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+// ReSharper disable TooManyDeclarations
+// ReSharper disable ExceptionNotDocumented
+// ReSharper disable ExceptionNotDocumented
+#pragma warning disable CS8605
+#pragma warning disable CS1591
 
 namespace ObjectTreeWalker.Tests
 {
@@ -24,16 +29,16 @@ namespace ObjectTreeWalker.Tests
 
         public class FooBarFields
         {
-            public int Foo1  = 111;
-            public int Foo2  = 222;
-            public int Foo3  = 333;
+            public int Foo1 = 111;
+            public int Foo2 = 222;
+            public int Foo3 = 333;
         }
 
         public class ComplexFooBarFields
         {
-            public int Foo1  = 111;
-            public FooBarFields Obj  = new FooBarFields();
-            public int Foo4  = 456;
+            public int Foo1 = 111;
+            public FooBarFields Obj = new FooBarFields();
+            public int Foo4 = 456;
         }
 
         [Fact]
@@ -75,7 +80,7 @@ namespace ObjectTreeWalker.Tests
                 var value = accessor.GetValue();
 
                 // all of "primitive" properties are of type int so this is correct
-                propertyValues.Add((int)value);
+                propertyValues.Add((int)value!);
             });
 
             Assert.Collection(propertyValues,
@@ -97,7 +102,7 @@ namespace ObjectTreeWalker.Tests
                 var value = accessor.GetValue();
 
                 // all of "primitive" properties are of type int so this is correct
-                propertyValues.Add((int)value);
+                propertyValues.Add((int)value!);
             }, (in MemberAccessor accessor) => accessor.Name != "Foo1");
 
             Assert.Collection(propertyValues,
@@ -118,7 +123,7 @@ namespace ObjectTreeWalker.Tests
                 var value = accessor.GetValue();
 
                 // all of "primitive" properties are of type int so this is correct
-                propertyValues.Add((int)value);
+                propertyValues.Add((int)value!);
             }, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
 
             Assert.Empty(propertyValues);
@@ -130,7 +135,7 @@ namespace ObjectTreeWalker.Tests
                 var value = accessor.GetValue();
 
                 // all of "primitive" properties are of type int so this is correct
-                propertyValues.Add((int)value);
+                propertyValues.Add((int)value!);
             }, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
 
             Assert.Collection(propertyValues,

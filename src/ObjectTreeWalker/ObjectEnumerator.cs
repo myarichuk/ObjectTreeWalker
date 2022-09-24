@@ -12,12 +12,12 @@ namespace ObjectTreeWalker
         /// <summary>
         /// Iteration Settings
         /// </summary>
-        public record Settings
+        public record Settings(bool IgnoreCompilerGenerated = true)
         {
             /// <summary>
             /// Gets or sets a value indicating whether to ignore compiler generated fields or not
             /// </summary>
-            public bool IgnoreCompilerGenerated { get; set; }
+            public bool IgnoreCompilerGenerated { get; set; } = IgnoreCompilerGenerated;
         }
 
         private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
@@ -63,33 +63,33 @@ namespace ObjectTreeWalker
             ObjectGraphCache.GetOrAdd(type, t =>
             {
                 var roots = EnumerateChildMembers(t).Select(memberData =>
-                    EnumerateMember(memberData.mi, null, memberData.canGet, memberData.canSet, memberData.memberType));
+                    EnumerateMember(null, new EnumerationItem(memberData.MemberInfo, memberData.CanGet, memberData.CanSet, memberData.MemberType)));
                 return new ObjectGraph(t, roots);
             });
 
-        private ObjectGraphNode EnumerateMember(MemberInfo member, ObjectGraphNode? parent, bool canGet, bool canSet, MemberType memberType)
+        private ObjectGraphNode EnumerateMember(ObjectGraphNode? parent, EnumerationItem enumerationItem)
         {
-            var ogn = new ObjectGraphNode(member, parent)
+            var ogn = new ObjectGraphNode(enumerationItem.MemberInfo, parent)
             {
-                CanGet = canGet,
-                CanSet = canSet,
-                MemberType = memberType
+                CanGet = enumerationItem.CanGet,
+                CanSet = enumerationItem.CanSet,
+                MemberType = enumerationItem.MemberType,
             };
 
-            var children = EnumerateChildMembers(member.GetUnderlyingType()!)
+            var children = EnumerateChildMembers(enumerationItem.MemberInfo.GetUnderlyingType()!)
                 .Select(memberData =>
-                    new ObjectGraphNode(memberData.mi, ogn)
+                    new ObjectGraphNode(memberData.MemberInfo, ogn)
                     {
-                        CanGet = memberData.canGet,
-                        CanSet = memberData.canSet,
-                        MemberType = memberType,
+                        CanGet = memberData.CanGet,
+                        CanSet = memberData.CanSet,
+                        MemberType = enumerationItem.MemberType,
                     });
 
             ogn.Children.AddRange(children);
             return ogn;
         }
 
-        private IEnumerable<(MemberInfo mi, bool canGet, bool canSet, MemberType memberType)> EnumerateChildMembers(Type type)
+        private IEnumerable<EnumerationItem> EnumerateChildMembers(Type type)
         {
             if (type.IsPrimitive)
             {
@@ -98,7 +98,7 @@ namespace ObjectTreeWalker
 
             foreach (var property in type.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
             {
-                yield return (property, property.GetMethod != null, property.SetMethod != null, MemberType.Property);
+                yield return new EnumerationItem(property, property.GetMethod != null, property.SetMethod != null, MemberType.Property);
             }
 
             foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
@@ -109,7 +109,23 @@ namespace ObjectTreeWalker
                     continue;
                 }
 
-                yield return (field, true, true, MemberType.Field);
+                yield return new EnumerationItem(field, true, true, MemberType.Field);
+            }
+        }
+
+        private readonly record struct EnumerationItem
+        {
+            public readonly MemberInfo MemberInfo;
+            public readonly bool CanGet;
+            public readonly bool CanSet;
+            public readonly MemberType MemberType;
+
+            public EnumerationItem(MemberInfo memberInfo, bool canGet, bool canSet, MemberType memberType)
+            {
+                MemberInfo = memberInfo;
+                CanGet = canGet;
+                CanSet = canSet;
+                MemberType = memberType;
             }
         }
     }
