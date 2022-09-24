@@ -14,6 +14,15 @@ namespace ObjectTreeWalker
         /// </summary>
         public record Settings
         {
+            public Settings()
+            {
+            }
+
+            public Settings(bool ignoreCompilerGenerated)
+            {
+                IgnoreCompilerGenerated = ignoreCompilerGenerated;
+            }
+
             /// <summary>
             /// Gets or sets a value indicating whether to ignore compiler generated fields or not
             /// </summary>
