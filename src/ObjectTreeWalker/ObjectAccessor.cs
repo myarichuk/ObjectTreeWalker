@@ -64,24 +64,19 @@ internal class ObjectAccessor
     /// <param name="value">value fetched or a default value</param>
     /// <returns>true if fetching successful, false otherwise</returns>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> or <paramref name="memberName"/> is <see langword="null"/></exception>
+    /// <exception cref="InvalidOperationException">Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.</exception>
     public bool TryGetValue(object source, string memberName, out object? value)
     {
         ValidateThrowIfNeeded(source, memberName);
 
         value = default;
-        if (!_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
+        if (_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
         {
-            if (!_getFieldMethods.TryGetValue(memberName, out var getterFieldFunc))
-            {
-                return false;
-            }
-
-            value = getterFieldFunc(source);
-            return true;
+            return TryExecuteGetter(source, out value, getterPropertyFunc);
         }
 
-        value = getterPropertyFunc(source);
-        return true;
+        return _getFieldMethods.TryGetValue(memberName, out var getterFieldFunc) &&
+               TryExecuteGetter(source, out value, getterFieldFunc);
     }
 
     /// <summary>
@@ -95,19 +90,44 @@ internal class ObjectAccessor
     {
         ValidateThrowIfNeeded(source, memberName);
 
-        if (!_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
+        if (_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
         {
-            if (!_setFieldMethods.TryGetValue(memberName, out var setterFieldFunc))
-            {
-                return false;
-            }
-
-            setterFieldFunc(source, value);
+            ExecuteSetter(source, value, setterPropertyFunc);
             return true;
         }
 
-        setterPropertyFunc(source, value);
+        if (_setFieldMethods.TryGetValue(memberName, out var setterFieldFunc))
+        {
+            ExecuteSetter(source, value, setterFieldFunc);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryExecuteGetter(object source, out object? value, Func<object, object> getterFieldFunc)
+    {
+        if (getterFieldFunc == null)
+        {
+            throw new InvalidOperationException(
+                "Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.");
+        }
+
+        // ReSharper disable once EventExceptionNotDocumented
+        value = getterFieldFunc(source);
         return true;
+    }
+
+    private static void ExecuteSetter(object objectInstance, object? newValue, Action<object, object> setter)
+    {
+        if (setter == null)
+        {
+            throw new InvalidOperationException(
+                "Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.");
+        }
+
+        // ReSharper disable once EventExceptionNotDocumented
+        setter(objectInstance, newValue!);
     }
 
     private static void ValidateThrowIfNeeded(object source, string memberName)
