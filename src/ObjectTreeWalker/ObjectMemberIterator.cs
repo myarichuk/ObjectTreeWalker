@@ -79,7 +79,13 @@ namespace ObjectTreeWalker
                 foreach (var root in objectGraph.Roots)
                 {
                     traversalQueue.Enqueue(
-                        (new(new ObjectMemberInfo(root.Name, root.MemberType, obj), rootObjectAccessor), root));
+                        (new(
+                            new ObjectMemberInfo(
+                                root.Name,
+                                root.MemberType,
+                                obj,
+                                root.MemberInfo.GetUnderlyingType()!),
+                            rootObjectAccessor), root));
                 }
 
 #if NET6_0
@@ -114,7 +120,13 @@ namespace ObjectTreeWalker
                         foreach (var child in current.Node.Children)
                         {
                             traversalQueue.Enqueue(
-                                (new(new ObjectMemberInfo(child.Name, child.MemberType, nodeInstance), objectAccessor), child));
+                                (new(
+                                    new ObjectMemberInfo(
+                                        child.Name,
+                                        child.MemberType,
+                                        nodeInstance,
+                                        child.MemberInfo.GetUnderlyingType()!),
+                                    objectAccessor), child));
                         }
                     }
                 }
