@@ -65,8 +65,19 @@ namespace ObjectTreeWalker
         /// <param name="visitorFunc">a lambda that encapsulates an action to apply to each member property or field</param>
         /// <param name="predicate">An optional predicate to ignore some object members when traversing (return false for certain iteration item to skip it)</param>
         /// <exception cref="InvalidOperationException">Invalid (null) item in the iteration queue. This is not supposed to happen and is likely an issue that should be reported.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="obj"/> or <paramref name="visitorFunc"/> is <see langword="null"/></exception>
         public void Traverse(object obj, VisitorFunc visitorFunc, PredicateFunc? predicate = null)
         {
+            if (obj == null)
+            {
+                throw new ArgumentNullException(nameof(obj));
+            }
+
+            if (visitorFunc == null)
+            {
+                throw new ArgumentNullException(nameof(visitorFunc));
+            }
+
             var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
 
             predicate ??= (in MemberAccessor _) => true;
