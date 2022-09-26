@@ -87,6 +87,17 @@ namespace ObjectTreeWalker.Tests
         }
 
         [Fact]
+        public void Can_see_member_types_when_iterating()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyValues = new List<int>();
+
+            iterator.Traverse(new ComplexFooBar(),
+                (in MemberAccessor accessor) =>
+                    Assert.Equal(typeof(int), accessor.Type));
+        }
+
+        [Fact]
         public void Can_skip_some_members()
         {
             var iterator = new ObjectMemberIterator();
