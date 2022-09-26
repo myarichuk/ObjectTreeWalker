@@ -26,6 +26,11 @@ public readonly struct MemberAccessor
     public string Name => _memberInfo.Name;
 
     /// <summary>
+    /// Gets the type of the property/field
+    /// </summary>
+    public Type Type => _memberInfo.Type;
+
+    /// <summary>
     /// Gets member type (property/field)
     /// </summary>
     public MemberType MemberType => _memberInfo.MemberType;
