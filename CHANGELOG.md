@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.0.0] - 2022-09-26
+### :sparkles: New Features
+- [`53aad6c`](https://github.com/myarichuk/ObjectTreeWalker/commit/53aad6ce23b2ee03577f59b8261f575ce3e9dc2a) - expose property/field type in MemberAccessor *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+
 ## [v0.3.0.0] - 2022-09-17
 ### :sparkles: New Features
 - [`0f6e7dd`](https://github.com/myarichuk/ObjectTreeWalker/commit/0f6e7dd1f735231cfab83b16a57e64770e238747) - inner implementation - object enumerator to compute and cache property/field graph per type *(commit by [@myarichuk](https://github.com/myarichuk))*
@@ -67,3 +72,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.1.0.0]: https://github.com/myarichuk/Library.Template/compare/v2.0.1.0...v2.1.0.0
 [v0.2.1.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.0.0...v0.2.1.0
 [v0.3.0.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.1.0...v0.3.0.0
+[v0.8.0.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.7.1.0...v0.8.0.0
