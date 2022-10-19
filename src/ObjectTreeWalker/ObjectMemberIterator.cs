@@ -95,7 +95,8 @@ namespace ObjectTreeWalker
                                 root.Name,
                                 root.MemberType,
                                 obj,
-                                root.MemberInfo.GetUnderlyingType()!),
+                                root.MemberInfo.GetUnderlyingType()!,
+                                new List<string> { root.Name }),
                             rootObjectAccessor), root));
                 }
 
@@ -136,7 +137,8 @@ namespace ObjectTreeWalker
                                         child.Name,
                                         child.MemberType,
                                         nodeInstance,
-                                        child.MemberInfo.GetUnderlyingType()!),
+                                        child.MemberInfo.GetUnderlyingType()!,
+                                        current.IterationItem.PropertyPath.Append(child.Name)),
                                     objectAccessor), child));
                         }
                     }
