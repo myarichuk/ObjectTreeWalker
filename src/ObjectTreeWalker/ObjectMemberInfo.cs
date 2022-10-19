@@ -1,3 +1,4 @@
+// ReSharper disable TooManyDependencies
 namespace ObjectTreeWalker;
 
 /// <summary>
@@ -26,17 +27,28 @@ internal readonly struct ObjectMemberInfo
     public readonly object Instance;
 
     /// <summary>
+    /// property and it's parents in-order
+    /// </summary>
+    public readonly IEnumerable<string> PropertyPath;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="ObjectMemberInfo"/> struct.
     /// </summary>
     /// <param name="name">member name</param>
     /// <param name="memberType">member type (property/field)</param>
     /// <param name="instance">instance of the object the member belongs</param>
     /// <param name="type">Type of the property/field</param>
+    /// <param name="propertyPath">property and it's parents in-order</param>
     /// <exception cref="ArgumentNullException">any of constructor parameters is null</exception>
-    // ReSharper disable once TooManyDependencies
-    public ObjectMemberInfo(string name, MemberType memberType, object instance, Type type)
+    public ObjectMemberInfo(
+        string name,
+        MemberType memberType,
+        object instance,
+        Type type,
+        IEnumerable<string> propertyPath)
     {
-        Type = type;
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        PropertyPath = propertyPath ?? throw new ArgumentNullException(nameof(propertyPath));
         Name = name ?? throw new ArgumentNullException(nameof(name));
         MemberType = memberType;
         Instance = instance ?? throw new ArgumentNullException(nameof(instance));

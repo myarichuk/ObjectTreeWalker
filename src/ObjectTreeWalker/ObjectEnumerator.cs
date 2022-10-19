@@ -114,19 +114,12 @@ namespace ObjectTreeWalker
         }
 
         private readonly record struct EnumerationItem
+            (MemberInfo MemberInfo, bool CanGet, bool CanSet, MemberType MemberType)
         {
-            public readonly MemberInfo MemberInfo;
-            public readonly bool CanGet;
-            public readonly bool CanSet;
-            public readonly MemberType MemberType;
-
-            public EnumerationItem(MemberInfo memberInfo, bool canGet, bool canSet, MemberType memberType)
-            {
-                MemberInfo = memberInfo;
-                CanGet = canGet;
-                CanSet = canSet;
-                MemberType = memberType;
-            }
+            public readonly MemberInfo MemberInfo = MemberInfo;
+            public readonly bool CanGet = CanGet;
+            public readonly bool CanSet = CanSet;
+            public readonly MemberType MemberType = MemberType;
         }
     }
 }

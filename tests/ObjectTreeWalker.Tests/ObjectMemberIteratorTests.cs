@@ -98,6 +98,30 @@ namespace ObjectTreeWalker.Tests
         }
 
         [Fact]
+        public void Can_see_property_path_when_iterating()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyPaths = new List<IEnumerable<string>>();
+
+            iterator.Traverse(new ComplexFooBar(),
+                (in MemberAccessor accessor) => 
+                    propertyPaths.Add(accessor.PropertyPath));
+
+            Assert.Collection(propertyPaths, 
+                propertyPath => 
+                    Assert.Equal("Foo1", string.Join(",",propertyPath)),
+                propertyPath => 
+                    Assert.Equal("Foo4", string.Join(",",propertyPath)),
+                propertyPath => 
+                    Assert.Equal("Obj,Foo1", string.Join(",",propertyPath)),
+                propertyPath => 
+                    Assert.Equal("Obj,Foo2", string.Join(",",propertyPath)),
+                propertyPath => 
+                    Assert.Equal("Obj,Foo3", string.Join(",",propertyPath))
+            );
+        }
+
+        [Fact]
         public void Can_skip_some_members()
         {
             var iterator = new ObjectMemberIterator();
