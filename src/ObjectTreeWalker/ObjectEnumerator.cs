@@ -91,7 +91,7 @@ namespace ObjectTreeWalker
 
         private IEnumerable<EnumerationItem> EnumerateChildMembers(Type type)
         {
-            if (type.IsPrimitive)
+            if (type.IsPrimitive || typeof(string).IsAssignableFrom(type))
             {
                 yield break;
             }

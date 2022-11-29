@@ -1,6 +1,9 @@
 // ReSharper disable TooManyDeclarations
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumented
+
+using System.Runtime.Serialization;
+
 #pragma warning disable CS8605
 #pragma warning disable CS1591
 
@@ -8,6 +11,20 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectMemberIteratorTests
     {
+        public class JustAFoobarObj
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+        }
+
+        public struct JustAFoobarStruct
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+        }
+
         public class FooBar
         {
             public int Foo1 { get; set; } = 111;
@@ -36,6 +53,32 @@ namespace ObjectTreeWalker.Tests
             public int Foo4 = 456;
         }
 
+        public class ComplexObjWithString
+        {
+            public string Foo { get; set; } = "B";
+
+            public ObjWithString Bar { get; set; } = new();
+        }
+
+        public class ObjWithString
+        {
+            public string? StringProperty { get; } = "A";
+            public string StringProperty2 { get; } = "C";
+        }
+
+        [Fact]
+        public void Can_manipulate_objects_with_strings()
+        {
+            var iterator = new ObjectMemberIterator();
+            var result = string.Empty;
+
+            iterator.Traverse(new ComplexObjWithString(),
+                (in MemberAccessor accessor) =>
+                    result += (string)accessor.GetValue()!);
+
+            Assert.Equal("BAC", result);
+        }
+
         [Fact]
         public void Can_iterate_flat_class()
         {
@@ -50,6 +93,39 @@ namespace ObjectTreeWalker.Tests
                 item => Assert.Equal(222, item),
                 item => Assert.Equal(333, item));
         }
+
+        [Theory]
+        [InlineData(typeof(JustAFoobarObj))]
+        [InlineData(typeof(JustAFoobarStruct))]
+        public void Can_iterate_uninitialized_object(Type typeOfObject)
+        {
+            var emptyInstance = FormatterServices.GetUninitializedObject(typeOfObject);
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(emptyInstance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+            });
+
+            var objectAsDynamic = (dynamic)emptyInstance;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
+
 
         [Fact]
         public void Can_iterate_flat_class_with_backing_fields()
