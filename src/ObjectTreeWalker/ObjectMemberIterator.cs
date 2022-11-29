@@ -128,7 +128,7 @@ namespace ObjectTreeWalker
                     var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
                     var nodeInstance = current.IterationItem.GetValue();
 
-                    if (nodeInstance == null)
+                    if (nodeInstance == null && current.Node.Type != typeof(string))
                     {
                         throw new InvalidOperationException("Invalid (null) item in the iteration queue. This is not supposed to happen and is likely a bug.");
                     }

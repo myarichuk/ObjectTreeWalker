@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.Serialization;
+
 // ReSharper disable InconsistentNaming
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumentedOptional
@@ -11,6 +13,8 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectAccessorTests
     {
+
+
         internal class PublicFooBar
         {
             public int Foo { get; set; } = 123;

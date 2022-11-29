@@ -13,8 +13,8 @@ namespace ObjectTreeWalker;
 internal class ObjectAccessor
 {
     private static readonly ConcurrentDictionary<Type, MethodInfo> GetDefaultCache = new();
-
     private readonly Type _objectType;
+    private readonly bool _isStringAccessor;
     private readonly Dictionary<string, Func<object, object>> _getPropertyMethods = new();
     private readonly Dictionary<string, Action<object, object>> _setPropertyMethods = new();
 
@@ -25,10 +25,12 @@ internal class ObjectAccessor
     /// Initializes a new instance of the <see cref="ObjectAccessor"/> class
     /// </summary>
     /// <param name="objectType">type of the object to prepare access of it's properties</param>
-    /// <exception cref="ArgumentException">$"The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
+    /// <exception cref="ArgumentException">The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
     public ObjectAccessor(Type objectType)
     {
-#if NET5_0_OR_GREATER
+
+
+#if NET6_0_OR_GREATER
         if (objectType.IsValueType && objectType.IsByRefLike)
         {
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
@@ -36,6 +38,13 @@ internal class ObjectAccessor
 #endif
 
         _objectType = objectType;
+
+        if (typeof(string).IsAssignableFrom(objectType))
+        {
+            _isStringAccessor = true;
+            return;
+        }
+
         foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
         {
             if (propertyInfo.GetMethod != null)
@@ -70,6 +79,13 @@ internal class ObjectAccessor
         ValidateThrowIfNeeded(source, memberName);
 
         value = default;
+
+        // strings have no valid members to access!
+        if (_isStringAccessor)
+        {
+            return false;
+        }
+
         if (_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
         {
             return TryExecuteGetter(source, out value, getterPropertyFunc);
@@ -89,6 +105,12 @@ internal class ObjectAccessor
     public bool TrySetValue(object source, string memberName, object? value)
     {
         ValidateThrowIfNeeded(source, memberName);
+
+        // strings have no valid members to access!
+        if (_isStringAccessor)
+        {
+            return false;
+        }
 
         if (_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
         {
