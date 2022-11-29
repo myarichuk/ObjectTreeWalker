@@ -7,6 +7,26 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectEnumeratorTests
     {
+        public class ObjWithIntPtr
+        {
+            public IntPtr Ptr { get; set; }
+        }
+
+        public class ObjWithMemoryOfT
+        {
+            public Memory<char> Ptr { get; set; }
+        }
+
+        public class ObjWithString
+        {
+            public string Str { get; set; }
+        }
+
+        public class ObjWithDynamic
+        {
+            public dynamic DynamicObj { get; set; }
+        }
+
         public class FlatObj
         {
             public int Foo { get; set; }
@@ -21,6 +41,21 @@ namespace ObjectTreeWalker.Tests
             public FlatObj? Obj { get; set; }
         }
 
+        [Theory]
+        [InlineData(typeof(ObjWithIntPtr))]
+        [InlineData(typeof(ObjWithMemoryOfT))]
+        [InlineData(typeof(ObjWithString))]
+        [InlineData(typeof(ObjWithDynamic))]
+        public void Special_type_properties_should_not_be_traversable(Type objType)
+        {
+            var objectGraph = new ObjectEnumerator().Enumerate(objType);
+            Assert.NotNull(objectGraph); //sanity check
+
+            var intPtrRoot = objectGraph.Roots.FirstOrDefault();
+            Assert.NotNull(intPtrRoot);
+            Assert.Empty(intPtrRoot.Children);
+        }
+
         [Fact]
         public void Can_enumerate_flat_object()
         {
@@ -31,6 +66,12 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Contains(objectGraph.Roots, ogn => ogn.Name == nameof(FlatObj.Foo) && ogn.Type == typeof(int));
             Assert.Contains(objectGraph.Roots, ogn => ogn.Name == nameof(FlatObj.Bar) && ogn.Type == typeof(string));
+
+            var stringPropNode = objectGraph.Roots.FirstOrDefault(ogn => ogn.Type == typeof(string));
+
+            // strings should be treated as if they are primitives, their properties should not be traversable
+            Assert.NotNull(stringPropNode);
+            Assert.Empty(stringPropNode.Children);
         }
 
         [Fact]
