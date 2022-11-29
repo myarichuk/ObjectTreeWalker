@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.4.0] - 2022-11-29
+### :bug: Bug Fixes
+- [`140dbd7`](https://github.com/myarichuk/ObjectTreeWalker/commit/140dbd794885da0bc7f9cbd4715f3929f7647553) - make sure strings are properly supported *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+### :wrench: Chores
+- [`0f2844d`](https://github.com/myarichuk/ObjectTreeWalker/commit/0f2844dc6b69e93da9a3e09fb392aaa478d408e3) - adjust global.json to allow major version upgrades *(commit by [@myarichuk](https://github.com/myarichuk))*
+- [`daf177e`](https://github.com/myarichuk/ObjectTreeWalker/commit/daf177e6c798e4c1604bd958428f15a5f169bc08) - merge commit conflict *(commit by [@myarichuk](https://github.com/myarichuk))*
+
+
 ## [v0.3.0.0] - 2022-09-17
 ### :sparkles: New Features
 - [`0f6e7dd`](https://github.com/myarichuk/ObjectTreeWalker/commit/0f6e7dd1f735231cfab83b16a57e64770e238747) - inner implementation - object enumerator to compute and cache property/field graph per type *(commit by [@myarichuk](https://github.com/myarichuk))*
@@ -67,3 +76,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.1.0.0]: https://github.com/myarichuk/Library.Template/compare/v2.0.1.0...v2.1.0.0
 [v0.2.1.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.0.0...v0.2.1.0
 [v0.3.0.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.2.1.0...v0.3.0.0
+[v0.9.4.0]: https://github.com/myarichuk/ObjectTreeWalker/compare/v0.9.3.0...v0.9.4.0
