@@ -351,3 +351,7 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+/src/ObjectTreeWalker/project.assets.json
+/src/ObjectTreeWalker/ObjectTreeWalker.csproj.nuget.g.targets
+/src/ObjectTreeWalker/ObjectTreeWalker.csproj.nuget.g.props
+/src/ObjectTreeWalker/ObjectTreeWalker.csproj.nuget.dgspec.json
