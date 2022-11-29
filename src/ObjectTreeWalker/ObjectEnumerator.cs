@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+// ReSharper disable ComplexConditionExpression
 
 namespace ObjectTreeWalker
 {
@@ -91,7 +92,9 @@ namespace ObjectTreeWalker
 
         private IEnumerable<EnumerationItem> EnumerateChildMembers(Type type)
         {
-            if (type.IsPrimitive || typeof(string).IsAssignableFrom(type))
+            if (type.IsPrimitive ||
+                type == typeof(string) ||
+                (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Memory<>)))
             {
                 yield break;
             }

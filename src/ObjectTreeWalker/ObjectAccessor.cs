@@ -28,7 +28,10 @@ internal class ObjectAccessor
     /// <exception cref="ArgumentException">The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
     public ObjectAccessor(Type objectType)
     {
-
+        if (objectType.IsPointer)
+        {
+            throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a pointer, it is not supported by {nameof(ObjectAccessor)}.");
+        }
 
 #if NET6_0_OR_GREATER
         if (objectType.IsValueType && objectType.IsByRefLike)
@@ -39,7 +42,7 @@ internal class ObjectAccessor
 
         _objectType = objectType;
 
-        if (typeof(string).IsAssignableFrom(objectType))
+        if (objectType == typeof(string))
         {
             _isStringAccessor = true;
             return;
@@ -47,6 +50,11 @@ internal class ObjectAccessor
 
         foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
         {
+            if (propertyInfo.PropertyType.IsPointer)
+            {
+                throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer property, it is not supported by {nameof(ObjectAccessor)}.");
+            }
+
             if (propertyInfo.GetMethod != null)
             {
                 _getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
@@ -60,6 +68,11 @@ internal class ObjectAccessor
 
         foreach (var fieldInfo in objectType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
         {
+            if (fieldInfo.FieldType.IsPointer)
+            {
+                throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer field, it is not supported by {nameof(ObjectAccessor)}.");
+            }
+
             _getFieldMethods.Add(fieldInfo.Name, CreateGetFieldFunc(fieldInfo));
             _setFieldMethods.Add(fieldInfo.Name, CreateSetFieldFunc(fieldInfo));
         }

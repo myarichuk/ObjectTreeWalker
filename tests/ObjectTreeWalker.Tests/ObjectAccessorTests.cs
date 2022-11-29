@@ -13,7 +13,10 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectAccessorTests
     {
-
+        public unsafe class ObjWithPointer
+        {
+            public int* Ptr { get; set; }
+        }
 
         internal class PublicFooBar
         {
@@ -95,6 +98,9 @@ namespace ObjectTreeWalker.Tests
             public FooABC Bar { get; set; } = new();
         }
 
+        [Fact]
+        public void Should_throw_on_pointer() =>
+            Assert.Throws<ArgumentException>(() => new ObjectAccessor(typeof(ObjWithPointer)));
         [Fact]
         public void Should_throw_on_ref_struct() =>
             Assert.Throws<ArgumentException>(() => new ObjectAccessor(typeof(Xyz)));

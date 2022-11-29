@@ -53,7 +53,13 @@ namespace ObjectTreeWalker.Tests
             public int Foo4 = 456;
         }
 
-        public class ComplexObjWithString
+        public interface IObjectInterface
+        {
+            string Foo { get; set; }
+            ObjWithString Bar { get; set; }
+        }
+
+        public class ComplexObjWithString : IObjectInterface
         {
             public string Foo { get; set; } = "B";
 
@@ -64,6 +70,21 @@ namespace ObjectTreeWalker.Tests
         {
             public string? StringProperty { get; } = "A";
             public string StringProperty2 { get; } = "C";
+        }
+
+        [Fact]
+        public void Can_iterate_properties_through_interfaces()
+        {
+            var iterator = new ObjectMemberIterator();
+            var result = string.Empty;
+
+            var objectAsInterface = (IObjectInterface)new ComplexObjWithString();
+
+            iterator.Traverse(objectAsInterface,
+                (in MemberAccessor accessor) =>
+                    result += (string)accessor.GetValue()!);
+
+            Assert.Equal("BAC", result);
         }
 
         [Fact]
