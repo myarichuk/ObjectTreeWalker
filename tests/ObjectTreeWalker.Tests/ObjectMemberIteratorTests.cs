@@ -162,6 +162,52 @@ namespace ObjectTreeWalker.Tests
                 item => Assert.Equal(333, item));
         }
 
+        public class IterationContext
+        {
+            public int ValueSum { get; set; }
+        }
+
+        [Fact]
+        public void Can_maintain_class_context_when_iterating()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyValues = new List<int>();
+
+            var aggregationResult =
+                iterator.Traverse(new ComplexFooBar(),
+                    (ref IterationContext ctx, in MemberAccessor accessor) =>
+                    {
+                        var value = accessor.GetValue();
+                        ctx.ValueSum += (int)value!;
+                        propertyValues.Add((int)value!);
+                    });
+
+            Assert.Equal(propertyValues.Sum(x => x), aggregationResult.ValueSum);
+        }
+
+        public struct IterationContextStruct
+        {
+            public int ValueSum { get; set; }
+        }
+
+        [Fact]
+        public void Can_maintain_struct_context_when_iterating()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyValues = new List<int>();
+
+            var aggregationResult =
+                iterator.Traverse(new ComplexFooBar(),
+                    (ref IterationContextStruct ctx, in MemberAccessor accessor) =>
+                    {
+                        var value = accessor.GetValue();
+                        ctx.ValueSum += (int)value!;
+                        propertyValues.Add((int)value!);
+                    });
+
+            Assert.Equal(propertyValues.Sum(x => x), aggregationResult.ValueSum);
+        }
+
         [Fact]
         public void Can_see_member_types_when_iterating()
         {
@@ -171,6 +217,30 @@ namespace ObjectTreeWalker.Tests
             iterator.Traverse(new ComplexFooBar(),
                 (in MemberAccessor accessor) =>
                     Assert.Equal(typeof(int), accessor.Type));
+        }
+
+        [Fact]
+        public void Can_see_property_path_when_iterating()
+        {
+            var iterator = new ObjectMemberIterator();
+            var propertyPaths = new List<IEnumerable<string>>();
+
+            iterator.Traverse(new ComplexFooBar(),
+                (in MemberAccessor accessor) =>
+                    propertyPaths.Add(accessor.PropertyPath));
+
+            Assert.Collection(propertyPaths,
+                propertyPath =>
+                    Assert.Equal("Foo1", string.Join(",",propertyPath)),
+                propertyPath =>
+                    Assert.Equal("Foo4", string.Join(",",propertyPath)),
+                propertyPath =>
+                    Assert.Equal("Obj,Foo1", string.Join(",",propertyPath)),
+                propertyPath =>
+                    Assert.Equal("Obj,Foo2", string.Join(",",propertyPath)),
+                propertyPath =>
+                    Assert.Equal("Obj,Foo3", string.Join(",",propertyPath))
+            );
         }
 
         [Fact]

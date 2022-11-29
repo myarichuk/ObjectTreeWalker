@@ -44,6 +44,11 @@ public readonly struct MemberAccessor
             null : value;
 
     /// <summary>
+    /// Gets the list of property name and it's parents in-order
+    /// </summary>
+    public IEnumerable<string> PropertyPath => _memberInfo.PropertyPath;
+
+    /// <summary>
     /// Accesses and sets member value
     /// </summary>
     /// <param name="newValue">New member value</param>
