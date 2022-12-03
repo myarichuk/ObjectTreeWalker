@@ -12,7 +12,7 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectMemberIteratorTests
     {
-        public class BarFoo
+        public class SomeEmbeddedObject
         {
             public string? AnotherStringProperty { get; set; }
 
@@ -23,13 +23,51 @@ namespace ObjectTreeWalker.Tests
             public bool BoolProperty { get; set; }
         }
 
-        public class ComplexFoobar
+        public struct SomeEmbeddedStruct
+        {
+            public string? AnotherStringProperty { get; set; }
+
+            public int AnotherNumProperty { get; set; }
+
+            public decimal DecimalProperty { get; set; }
+
+            public bool BoolProperty { get; set; }
+        }
+
+        public class ObjectWithEmbeddedObject
         {
             public int NumProperty { get; set; }
 
             public string? StringProperty { get; set; }
 
-            public BarFoo? Embedded { get; set; }
+            public SomeEmbeddedObject? Embedded { get; set; }
+        }
+
+        public class ObjectWithEmbeddedStruct
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedStruct? Embedded { get; set; }
+        }
+
+        public struct StructWithEmbeddedObject
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedObject? Embedded { get; set; }
+        }
+
+        public struct StructWithEmbeddedStruct
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedStruct? Embedded { get; set; }
         }
 
         public class JustAFoobarObj
@@ -260,10 +298,14 @@ namespace ObjectTreeWalker.Tests
         private static object CreateEmptyInstance(Type type) =>
             RuntimeHelpers.GetUninitializedObject(type);
 
-        [Fact]
-        public void Can_iterate_embedded_property()
+        [Theory]
+        [InlineData(typeof(ObjectWithEmbeddedObject))]
+        [InlineData(typeof(StructWithEmbeddedObject))]
+        [InlineData(typeof(StructWithEmbeddedStruct))]
+        [InlineData(typeof(ObjectWithEmbeddedStruct))]
+        public void Can_iterate_embedded_property(Type type)
         {
-            var instance = (ComplexFoobar)FormatterServices.GetUninitializedObject(typeof(ComplexFoobar));
+            var instance = FormatterServices.GetUninitializedObject(type);
             var iterator = new ObjectMemberIterator();
 
             iterator.Traverse(instance, (in MemberAccessor accessor) =>
@@ -283,9 +325,9 @@ namespace ObjectTreeWalker.Tests
                     accessor.SetValue("abc");
                 }
 
-                if (accessor.Name.Contains(nameof(ComplexFoobar.Embedded)))
+                if (accessor.Name.Contains("Embedded"))
                 {
-                    accessor.SetValue(new BarFoo{ AnotherNumProperty = 123});
+                    accessor.SetValue(new SomeEmbeddedObject { AnotherNumProperty = 123});
                 }
             });
 
@@ -293,6 +335,7 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Equal(5, objectAsDynamic.NumProperty);
             Assert.Equal("abc", objectAsDynamic.StringProperty);
+            Assert.Equal(123, objectAsDynamic.Embedded?.AnotherNumProperty ?? 0);
         }
 
 
