@@ -276,5 +276,14 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Null(propertyInfo.GetValue(obj));
         }
+
+        [Fact]
+        public void Should_fail_setting_with_type_mismatch()
+        {
+            var accessor = new ObjectAccessor(typeof(PublicFooBar));
+            var instance = new PublicFooBar();
+
+            Assert.Throws<InvalidOperationException>(() => accessor.TrySetValue(instance, nameof(PublicFooBar.Test123), "aaa"));
+        }
     }
 }

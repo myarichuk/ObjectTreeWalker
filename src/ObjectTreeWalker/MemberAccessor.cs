@@ -44,6 +44,14 @@ public readonly struct MemberAccessor
             null : value;
 
     /// <summary>
+    /// Try fetch member value
+    /// </summary>
+    /// <param name="value">member value to be returned</param>
+    /// <returns>true if the member is found, false otherwise</returns>
+    public bool TryGetValue(out object? value) =>
+        _objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value);
+
+    /// <summary>
     /// Gets the list of property name and it's parents in-order
     /// </summary>
     public IEnumerable<string> PropertyPath => _memberInfo.PropertyPath;

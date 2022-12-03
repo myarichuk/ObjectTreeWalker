@@ -41,7 +41,7 @@ namespace ObjectTreeWalker
     public class ObjectMemberIterator
     {
         private static readonly ConcurrentDictionary<Type, ObjectAccessor> ObjectAccessorCache = new();
-
+        private static readonly object EmptyContext = new();
         private static readonly ObjectPool<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>> TraversalQueuePool =
             new DefaultObjectPoolProvider().Create<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>>();
 
@@ -84,98 +84,12 @@ namespace ObjectTreeWalker
         /// <param name="predicate">An optional predicate to ignore some object members when traversing (return false for certain iteration item to skip it)</param>
         /// <exception cref="InvalidOperationException">Invalid (null) item in the iteration queue. This is not supposed to happen and is likely an issue that should be reported.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="obj"/> or <paramref name="visitorFunc"/> is <see langword="null"/></exception>
-        public void Traverse(object obj, VisitorFunc visitorFunc, PredicateFunc? predicate = null)
-        {
-            if (obj == null)
-            {
-                throw new ArgumentNullException(nameof(obj));
-            }
-
-            if (visitorFunc == null)
-            {
-                throw new ArgumentNullException(nameof(visitorFunc));
-            }
-
-            var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
-
-            predicate ??= (in MemberAccessor _) => true;
-
-            var traversalQueue = TraversalQueuePool.Get();
-            try
-            {
-
-                EnqueueObjectRoots(obj, objectGraph, traversalQueue);
-
-#if NET6_0
-                while (traversalQueue.TryDequeue(out var current))
-                {
-#else
-                while (traversalQueue.Count > 0)
-                {
-                    var current = traversalQueue.Dequeue();
-#endif
-                    var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
-                    var nodeInstance = current.IterationItem.GetValue();
-
-                    if (nodeInstance == null && current.Node.Type != typeof(string))
-                    {
-                        throw new InvalidOperationException("Invalid (null) item in the iteration queue. This is not supposed to happen and is likely a bug.");
-                    }
-
-                    if (!predicate(current.IterationItem))
-                    {
-                        continue;
-                    }
-
-                    /*
-                     * Handle the edge-case where our member value is an upcast version of the object ->
-                     * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
-                     * would enumerate the members of a base object at this point.
-                     * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
-                    */
-                    if (current.Node.Type == typeof(object) ||
-                        current.Node.Type == typeof(ValueType))
-                    {
-                        var actualType = nodeInstance?.GetType()!; // we checked for null already
-                        if (actualType == typeof(object) ||
-                            actualType == typeof(ValueType)) // got nothing to do!
-                        {
-                            continue;
-                        }
-
-                        var actualObjectGraph = _objectEnumerator.Enumerate(actualType);
-                        EnqueueObjectRoots(nodeInstance!, actualObjectGraph, traversalQueue);
-                        continue;
-                    }
-
-                    // we are only interested in iterating over the "data" vertices
-                    // otherwise, we would get "foo(obj)" and then all foo's properties
-                    if (current.Node.Children.Count == 0)
-                    {
-                        visitorFunc(current.IterationItem);
-                    }
-                    else
-                    {
-                        foreach (var child in current.Node.Children)
-                        {
-                            traversalQueue.Enqueue(
-                                (new(
-                                    new ObjectMemberInfo(
-                                        child.Name,
-                                        child.MemberType,
-                                        nodeInstance,
-                                        child.MemberInfo.GetUnderlyingType()!,
-                                        current.IterationItem.PropertyPath.Append(child.Name)),
-                                    objectAccessor), child));
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                TraversalQueuePool.Return(traversalQueue);
-            }
-        }
+        public void Traverse(object obj, VisitorFunc visitorFunc, PredicateFunc? predicate = null) =>
+            Traverse(
+                obj,
+                (ref object _, in MemberAccessor accessor) => visitorFunc(accessor),
+                EmptyContext,
+                (in object _, in MemberAccessor memberAccessor) => predicate?.Invoke(memberAccessor) ?? true);
 
         private static void EnqueueObjectRoots(
             object obj,
@@ -236,30 +150,17 @@ namespace ObjectTreeWalker
                 throw new ArgumentNullException(nameof(visitorFunc));
             }
 
-            var context = iterationContext ?? new TContext();
             var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
+            var context = iterationContext ?? new TContext();
 
             predicate ??= (in TContext _, in MemberAccessor _) => true;
 
             var traversalQueue = TraversalQueuePool.Get();
             try
             {
-                var rootObjectAccessor = GetCachedObjectAccessor(objectGraph.Type);
+                EnqueueObjectRoots(obj, objectGraph, traversalQueue);
 
-                foreach (var root in objectGraph.Roots)
-                {
-                    traversalQueue.Enqueue(
-                        (new(
-                            new ObjectMemberInfo(
-                                root.Name,
-                                root.MemberType,
-                                obj,
-                                root.MemberInfo.GetUnderlyingType()!,
-                                new List<string> { root.Name }),
-                            rootObjectAccessor), root));
-                }
-
-#if NET6_0
+#if NET6_0_OR_GREATER
                 while (traversalQueue.TryDequeue(out var current))
                 {
 #else
@@ -267,34 +168,33 @@ namespace ObjectTreeWalker
                 {
                     var current = traversalQueue.Dequeue();
 #endif
-                    var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
-                    var nodeInstance = current.IterationItem.GetValue();
-
-                    if (nodeInstance == null)
-                    {
-                        throw new InvalidOperationException("Invalid (null) item in the iteration queue. This is not supposed to happen and is likely a bug.");
-                    }
-
                     if (!predicate(context, current.IterationItem))
                     {
                         continue;
                     }
 
+                    var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
+
+                    // nodeInstance null means no iteration is necessary
+                    if (!current.IterationItem.TryGetValue(out var nodeInstance) || nodeInstance == null)
+                    {
+                        visitorFunc(ref context, current.IterationItem);
+                        continue;
+                    }
 
                     /*
-                     * Handle the edge-case where our member value is an upcast version of the object ->
-                     * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
-                     * would enumerate the members of a base object at this point.
-                     * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
-                    */
+                           * Handle the edge-case where our member value is an upcast version of the object ->
+                           * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
+                           * would enumerate the members of a base object at this point.
+                           * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
+                          */
                     if (current.Node.Type == typeof(object) ||
                         current.Node.Type == typeof(ValueType))
                     {
-                        var actualType = nodeInstance.GetType(); // we checked for null already
+                        var actualType = nodeInstance?.GetType()!; // we checked for null already
                         if (actualType == typeof(object) ||
-                            actualType == typeof(ValueType))
+                            actualType == typeof(ValueType)) // got nothing to do!
                         {
-                            // got nothing to do!
                             continue;
                         }
 

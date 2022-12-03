@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 // ReSharper disable ComplexConditionExpression
+// ReSharper disable MethodTooLong
+// ReSharper disable CognitiveComplexity
 
 namespace ObjectTreeWalker
 {
@@ -105,6 +107,21 @@ namespace ObjectTreeWalker
                 type == typeof(string) ||
                 (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Memory<>)))
             {
+                yield break;
+            }
+
+            // nullable is a special case
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                var valueProp = type.GetProperty(nameof(Nullable<bool>.Value), BindingFlags.Instance | BindingFlags.Public);
+
+                // just in case
+                if (valueProp == null)
+                {
+                    throw new InvalidOperationException("Failed to fetch 'Value' property of a Nullable<T> struct. This is not supposed to happen and is likely a bug.");
+                }
+
+                yield return new EnumerationItem(valueProp, valueProp.GetMethod != null, valueProp.SetMethod != null, MemberType.Property);
                 yield break;
             }
 

@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Sigil;
+// ReSharper disable ComplexConditionExpression
 
 namespace ObjectTreeWalker;
 
@@ -20,6 +23,9 @@ internal class ObjectAccessor
 
     private readonly Dictionary<string, Func<object, object>> _getFieldMethods = new();
     private readonly Dictionary<string, Action<object, object>> _setFieldMethods = new();
+
+    private readonly Dictionary<string, PropertyInfo> _propertyCache = new();
+    private readonly Dictionary<string, FieldInfo> _fieldCache = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ObjectAccessor"/> class
@@ -55,6 +61,7 @@ internal class ObjectAccessor
                 throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer property, it is not supported by {nameof(ObjectAccessor)}.");
             }
 
+            AddPropertyToCacheIfNeeded(propertyInfo);
             if (propertyInfo.GetMethod != null)
             {
                 _getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
@@ -73,6 +80,7 @@ internal class ObjectAccessor
                 throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer field, it is not supported by {nameof(ObjectAccessor)}.");
             }
 
+            AddFieldToCacheIfNeeded(fieldInfo);
             _getFieldMethods.Add(fieldInfo.Name, CreateGetFieldFunc(fieldInfo));
             _setFieldMethods.Add(fieldInfo.Name, CreateSetFieldFunc(fieldInfo));
         }
@@ -115,6 +123,7 @@ internal class ObjectAccessor
     /// <param name="memberName">field or property name</param>
     /// <param name="value">value to be set</param>
     /// <returns>true if setting successful, false otherwise</returns>
+    /// <exception cref="InvalidOperationException">Failed to find property in the property cache..</exception>
     public bool TrySetValue(object source, string memberName, object? value)
     {
         ValidateThrowIfNeeded(source, memberName);
@@ -127,12 +136,34 @@ internal class ObjectAccessor
 
         if (_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
         {
+            if (!_propertyCache.TryGetValue(memberName, out var propertyInfo))
+            {
+                throw new InvalidOperationException($"Failed to find property {memberName} in property cache. This is not supposed to happen and is likely a bug.");
+            }
+
+            // safety precaution
+            if (value != null && !propertyInfo.PropertyType.IsInstanceOfType(value))
+            {
+                throw new InvalidOperationException($"Type mismatch, cannot set member. Property type = {propertyInfo.PropertyType} but value type = {value.GetType()}");
+            }
+
             ExecuteSetter(source, value, setterPropertyFunc);
             return true;
         }
 
         if (_setFieldMethods.TryGetValue(memberName, out var setterFieldFunc))
         {
+            if (!_fieldCache.TryGetValue(memberName, out var fieldInfo))
+            {
+                throw new InvalidOperationException($"Failed to find field {memberName} in the field cache. This is not supposed to happen and is likely a bug.");
+            }
+
+            // safety precaution
+            if (value != null && !fieldInfo.FieldType.IsInstanceOfType(value))
+            {
+                throw new InvalidOperationException($"Type mismatch, cannot set member. Field type = {fieldInfo.FieldType}, value type = {value.GetType()}");
+            }
+
             ExecuteSetter(source, value, setterFieldFunc);
             return true;
         }
@@ -342,5 +373,29 @@ internal class ObjectAccessor
         emitter.Return();
 
         return emitter.CreateDelegate();
+    }
+
+    private void AddPropertyToCacheIfNeeded(PropertyInfo propertyInfo)
+    {
+#if NET6_0_OR_GREATER
+        _propertyCache.TryAdd(propertyInfo.Name, propertyInfo);
+#else
+        if (!_propertyCache.ContainsKey(propertyInfo.Name))
+        {
+            _propertyCache.Add(propertyInfo.Name, propertyInfo);
+        }
+#endif
+    }
+
+    private void AddFieldToCacheIfNeeded(FieldInfo fieldInfo)
+    {
+#if NET6_0_OR_GREATER
+        _fieldCache.TryAdd(fieldInfo.Name, fieldInfo);
+#else
+        if (!_fieldCache.ContainsKey(fieldInfo.Name))
+        {
+            _fieldCache.Add(fieldInfo.Name, fieldInfo);
+        }
+#endif
     }
 }

@@ -12,6 +12,11 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectMemberIteratorTests
     {
+        public class ObjectWithNullable
+        {
+            public ObjectWithEmbeddedObject? Value { get; set; }
+        }
+
         public class SomeEmbeddedObject
         {
             public string? AnotherStringProperty { get; set; }
@@ -327,7 +332,9 @@ namespace ObjectTreeWalker.Tests
 
                 if (accessor.Name.Contains("Embedded"))
                 {
-                    accessor.SetValue(new SomeEmbeddedObject { AnotherNumProperty = 123});
+                    var embeddedObject = (dynamic)FormatterServices.GetUninitializedObject(accessor.Type);
+                    embeddedObject.AnotherNumProperty = 123;
+                    accessor.SetValue(embeddedObject);
                 }
             });
 
@@ -338,6 +345,35 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal(123, objectAsDynamic.Embedded?.AnotherNumProperty ?? 0);
         }
 
+        [Fact]
+        public void Can_iterate_nullable_property()
+        {
+            var instance = new ObjectWithNullable { Value = new() };
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(instance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+            });
+
+            var objectAsDynamic = (dynamic)instance.Value;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
 
         [Fact]
         public void Can_iterate_flat_class_with_backing_fields()
@@ -488,7 +524,10 @@ namespace ObjectTreeWalker.Tests
 
                 // all of "primitive" properties are of type int so this is correct
                 propertyValues.Add((int)value!);
-            }, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
+            }, (in MemberAccessor accessor) =>
+            {
+                return accessor.MemberType != MemberType.Property;
+            });
 
             Assert.Empty(propertyValues);
 
