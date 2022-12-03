@@ -63,8 +63,17 @@ namespace ObjectTreeWalker
         public ObjectGraph Enumerate(Type type) =>
             ObjectGraphCache.GetOrAdd(type, t =>
             {
-                var roots = EnumerateChildMembers(t).Select(memberData =>
-                    EnumerateMember(null, new EnumerationItem(memberData.MemberInfo, memberData.CanGet, memberData.CanSet, memberData.MemberType)));
+                var roots =
+                    EnumerateChildMembers(t)
+                        .Select(memberData =>
+                            EnumerateMember(
+                                null,
+                                new EnumerationItem(
+                                    memberData.MemberInfo,
+                                    memberData.CanGet,
+                                    memberData.CanSet,
+                                    memberData.MemberType)));
+
                 return new ObjectGraph(t, roots);
             });
 
