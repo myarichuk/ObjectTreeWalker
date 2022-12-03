@@ -2,6 +2,7 @@
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumented
 
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 
 #pragma warning disable CS8605
@@ -11,6 +12,26 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectMemberIteratorTests
     {
+        public class BarFoo
+        {
+            public string? AnotherStringProperty { get; set; }
+
+            public int AnotherNumProperty { get; set; }
+
+            public decimal DecimalProperty { get; set; }
+
+            public bool BoolProperty { get; set; }
+        }
+
+        public class ComplexFoobar
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public BarFoo? Embedded { get; set; }
+        }
+
         public class JustAFoobarObj
         {
             public int NumProperty { get; set; }
@@ -235,6 +256,45 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal(5, objectAsDynamic.NumProperty);
             Assert.Equal("abc", objectAsDynamic.StringProperty);
         }
+
+        private static object CreateEmptyInstance(Type type) =>
+            RuntimeHelpers.GetUninitializedObject(type);
+
+        [Fact]
+        public void Can_iterate_embedded_property()
+        {
+            var instance = (ComplexFoobar)FormatterServices.GetUninitializedObject(typeof(ComplexFoobar));
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(instance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+
+                if (accessor.Name.Contains(nameof(ComplexFoobar.Embedded)))
+                {
+                    accessor.SetValue(new BarFoo{ AnotherNumProperty = 123});
+                }
+            });
+
+            var objectAsDynamic = (dynamic)instance;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
+
 
         [Fact]
         public void Can_iterate_flat_class_with_backing_fields()
