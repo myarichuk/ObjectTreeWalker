@@ -51,6 +51,6 @@ internal readonly struct ObjectMemberInfo
         PropertyPath = propertyPath ?? throw new ArgumentNullException(nameof(propertyPath));
         Name = name ?? throw new ArgumentNullException(nameof(name));
         MemberType = memberType;
-        Instance = instance ?? throw new ArgumentNullException(nameof(instance));
+        Instance = instance;
     }
 }

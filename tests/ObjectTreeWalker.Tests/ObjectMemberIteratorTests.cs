@@ -2,6 +2,7 @@
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumented
 
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 
 #pragma warning disable CS8605
@@ -11,6 +12,69 @@ namespace ObjectTreeWalker.Tests
 {
     public class ObjectMemberIteratorTests
     {
+        public class ObjectWithNullable
+        {
+            public ObjectWithEmbeddedObject? Value { get; set; }
+        }
+
+        public class SomeEmbeddedObject
+        {
+            public string? AnotherStringProperty { get; set; }
+
+            public int AnotherNumProperty { get; set; }
+
+            public decimal DecimalProperty { get; set; }
+
+            public bool BoolProperty { get; set; }
+        }
+
+        public struct SomeEmbeddedStruct
+        {
+            public string? AnotherStringProperty { get; set; }
+
+            public int AnotherNumProperty { get; set; }
+
+            public decimal DecimalProperty { get; set; }
+
+            public bool BoolProperty { get; set; }
+        }
+
+        public class ObjectWithEmbeddedObject
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedObject? Embedded { get; set; }
+        }
+
+        public class ObjectWithEmbeddedStruct
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedStruct? Embedded { get; set; }
+        }
+
+        public struct StructWithEmbeddedObject
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedObject? Embedded { get; set; }
+        }
+
+        public struct StructWithEmbeddedStruct
+        {
+            public int NumProperty { get; set; }
+
+            public string? StringProperty { get; set; }
+
+            public SomeEmbeddedStruct? Embedded { get; set; }
+        }
+
         public class JustAFoobarObj
         {
             public int NumProperty { get; set; }
@@ -236,6 +300,81 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal("abc", objectAsDynamic.StringProperty);
         }
 
+        private static object CreateEmptyInstance(Type type) =>
+            RuntimeHelpers.GetUninitializedObject(type);
+
+        [Theory]
+        [InlineData(typeof(ObjectWithEmbeddedObject))]
+        [InlineData(typeof(StructWithEmbeddedObject))]
+        [InlineData(typeof(StructWithEmbeddedStruct))]
+        [InlineData(typeof(ObjectWithEmbeddedStruct))]
+        public void Can_iterate_embedded_property(Type type)
+        {
+            var instance = FormatterServices.GetUninitializedObject(type);
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(instance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+
+                if (accessor.Name.Contains("Embedded"))
+                {
+                    var embeddedObject = (dynamic)FormatterServices.GetUninitializedObject(accessor.Type);
+                    embeddedObject.AnotherNumProperty = 123;
+                    accessor.SetValue(embeddedObject);
+                }
+            });
+
+            var objectAsDynamic = (dynamic)instance;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+            Assert.Equal(123, objectAsDynamic.Embedded?.AnotherNumProperty ?? 0);
+        }
+
+        [Fact]
+        public void Can_iterate_nullable_property()
+        {
+            var instance = new ObjectWithNullable { Value = new() };
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(instance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+            });
+
+            var objectAsDynamic = (dynamic)instance.Value;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
+
         [Fact]
         public void Can_iterate_flat_class_with_backing_fields()
         {
@@ -385,7 +524,10 @@ namespace ObjectTreeWalker.Tests
 
                 // all of "primitive" properties are of type int so this is correct
                 propertyValues.Add((int)value!);
-            }, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
+            }, (in MemberAccessor accessor) =>
+            {
+                return accessor.MemberType != MemberType.Property;
+            });
 
             Assert.Empty(propertyValues);
 
