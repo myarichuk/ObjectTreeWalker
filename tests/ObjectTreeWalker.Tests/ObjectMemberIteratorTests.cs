@@ -18,11 +18,36 @@ namespace ObjectTreeWalker.Tests
             public string? StringProperty { get; set; }
         }
 
+        public class ObjectWithUpcastProperty
+        {
+            public object Value { get; set; }
+        }
+
         public struct JustAFoobarStruct
         {
             public int NumProperty { get; set; }
 
             public string? StringProperty { get; set; }
+        }
+
+        // recreation of a class in Fasterflect library (https://github.com/buunguyen/fasterflect)
+        // essentially, this is an edge case scenario that needs to be supported
+        internal class ValueTypeHolder
+        {
+            /// <summary>
+            /// Creates a wrapper for <paramref name="value"/> value type.
+            /// </summary>
+            /// <param name="value">The value type to be wrapped.
+            /// Must be a derivative of <code>ValueType</code>.</param>
+            public ValueTypeHolder(object value)
+            {
+                Value = (ValueType) value;
+            }
+
+            /// <summary>
+            /// The actual struct wrapped by this instance.
+            /// </summary>
+            public ValueType Value { get; set; }
         }
 
         public class FooBar
@@ -147,6 +172,69 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal("abc", objectAsDynamic.StringProperty);
         }
 
+        [Fact]
+        public void Can_iterate_wrapped_struct()
+        {
+            var emptyInstance = (JustAFoobarStruct)FormatterServices.GetUninitializedObject(typeof(JustAFoobarStruct));
+            var wrappedInstance = new ValueTypeHolder(emptyInstance);
+
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(wrappedInstance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+            });
+
+            var objectAsDynamic = (dynamic)wrappedInstance.Value;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
+
+        [Fact]
+        public void Can_iterate_wrapped_obj()
+        {
+            var emptyInstance = (JustAFoobarObj)FormatterServices.GetUninitializedObject(typeof(JustAFoobarObj));
+            var wrappedInstance = new ObjectWithUpcastProperty{ Value = emptyInstance };
+
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(wrappedInstance, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains("Num"))
+                {
+                    //existing value should be null
+                    var value = (int)accessor.GetValue();
+                    Assert.Equal(0, value);
+                    accessor.SetValue(5);
+                }
+
+                if (accessor.Name.Contains("String"))
+                {
+                    var value = (string)accessor.GetValue()!;
+                    Assert.Null(value);
+                    accessor.SetValue("abc");
+                }
+            });
+
+            var objectAsDynamic = (dynamic)wrappedInstance.Value;
+
+            Assert.Equal(5, objectAsDynamic.NumProperty);
+            Assert.Equal("abc", objectAsDynamic.StringProperty);
+        }
 
         [Fact]
         public void Can_iterate_flat_class_with_backing_fields()
