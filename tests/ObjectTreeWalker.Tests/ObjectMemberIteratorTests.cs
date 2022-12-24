@@ -346,6 +346,32 @@ namespace ObjectTreeWalker.Tests
         }
 
         [Fact]
+        public void Can_iterate_decimal_property()
+        {
+            const decimal expected = 123.31M;
+
+            var obj = new ObjectWithEmbeddedObject
+            {
+                Embedded = new SomeEmbeddedObject
+                {
+                    DecimalProperty = expected
+                }
+            };
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(obj, (in MemberAccessor accessor) =>
+            {
+                if (accessor.Name.Contains(nameof(SomeEmbeddedObject.DecimalProperty)))
+                {
+                    var value = accessor.GetValue();
+                    var decimalValue = value as decimal? ?? throw new InvalidOperationException("Incorrect property type during iteration!");
+
+                    Assert.Equal(expected, decimalValue);
+                }
+            });
+        }
+
+        [Fact]
         public void Can_iterate_nullable_property()
         {
             var instance = new ObjectWithNullable { Value = new() };
