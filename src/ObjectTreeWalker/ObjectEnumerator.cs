@@ -105,6 +105,7 @@ namespace ObjectTreeWalker
         {
             if (type.IsPrimitive ||
                 type == typeof(string) ||
+                type == typeof(decimal) ||
                 (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Memory<>)))
             {
                 yield break;

@@ -22,6 +22,11 @@ namespace ObjectTreeWalker.Tests
             public string Str { get; set; }
         }
 
+        public class ObjWithDecimal
+        {
+            public decimal Decimal { get; set; }
+        }
+
         public class ObjWithDynamic
         {
             public dynamic DynamicObj { get; set; }
@@ -46,14 +51,16 @@ namespace ObjectTreeWalker.Tests
         [InlineData(typeof(ObjWithMemoryOfT))]
         [InlineData(typeof(ObjWithString))]
         [InlineData(typeof(ObjWithDynamic))]
+        [InlineData(typeof(ObjWithDecimal))]
         public void Special_type_properties_should_not_be_traversable(Type objType)
         {
             var objectGraph = new ObjectEnumerator().Enumerate(objType);
             Assert.NotNull(objectGraph); //sanity check
 
-            var intPtrRoot = objectGraph.Roots.FirstOrDefault();
-            Assert.NotNull(intPtrRoot);
-            Assert.Empty(intPtrRoot.Children);
+            var rootGraphNode = objectGraph.Roots.FirstOrDefault();
+
+            Assert.NotNull(rootGraphNode);
+            Assert.Empty(rootGraphNode.Children);
         }
 
         [Fact]
