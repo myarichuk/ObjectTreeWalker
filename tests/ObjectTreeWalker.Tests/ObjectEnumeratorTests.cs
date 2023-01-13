@@ -46,6 +46,14 @@ namespace ObjectTreeWalker.Tests
             public FlatObj? Obj { get; set; }
         }
 
+        public class DeepObjWithStruct
+        {
+            private int _foo;
+            public int FooBar => _foo;
+
+            public FlatStruct? Obj { get; set; }
+        }
+
         public struct DeepStruct
         {
             private int _foo;
@@ -53,6 +61,15 @@ namespace ObjectTreeWalker.Tests
 
             public FlatStruct? Obj { get; set; }
         }
+
+        public struct DeepStructWithNonNullable
+        {
+            private int _foo;
+            public int FooBar => _foo;
+
+            public FlatStruct Obj { get; set; }
+        }
+
 
         public struct FlatStruct
         {
@@ -112,10 +129,13 @@ namespace ObjectTreeWalker.Tests
             Assert.Contains(embeddedObj.Children, ogn => ogn.Name == nameof(FlatObj.Bar) && ogn.Type == typeof(string));
         }
 
-        [Fact]
-        public void Can_enumerate_deep_struct()
+        [Theory]
+        [InlineData(typeof(DeepStruct))]
+        [InlineData(typeof(DeepStructWithNonNullable))]
+        [InlineData(typeof(DeepObjWithStruct))]
+        public void Can_enumerate_embedded_struct(Type type)
         {
-            var objectGraph = new ObjectEnumerator().Enumerate(typeof(DeepStruct));
+            var objectGraph = new ObjectEnumerator().Enumerate(type);
 
             Assert.NotNull(objectGraph);
 
