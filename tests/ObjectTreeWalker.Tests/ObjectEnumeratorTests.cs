@@ -46,6 +46,20 @@ namespace ObjectTreeWalker.Tests
             public FlatObj? Obj { get; set; }
         }
 
+        public struct DeepStruct
+        {
+            private int _foo;
+            public int FooBar => _foo;
+
+            public FlatStruct? Obj { get; set; }
+        }
+
+        public struct FlatStruct
+        {
+            public int Foo { get; set; }
+            public string? Bar;
+        }
+
         [Theory]
         [InlineData(typeof(ObjWithIntPtr))]
         [InlineData(typeof(ObjWithMemoryOfT))]
@@ -96,6 +110,23 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Contains(embeddedObj!.Children, ogn => ogn.Name == nameof(FlatObj.Foo) && ogn.Type == typeof(int));
             Assert.Contains(embeddedObj.Children, ogn => ogn.Name == nameof(FlatObj.Bar) && ogn.Type == typeof(string));
+        }
+
+        [Fact]
+        public void Can_enumerate_deep_struct()
+        {
+            var objectGraph = new ObjectEnumerator().Enumerate(typeof(DeepStruct));
+
+            Assert.NotNull(objectGraph);
+
+            Assert.Contains(objectGraph.Roots, ogn => ogn.Name == nameof(DeepStruct.FooBar) && ogn.Type == typeof(int) && !ogn.CanSet);
+            Assert.Contains(objectGraph.Roots, ogn => ogn.Name == "_foo" && ogn.Type == typeof(int));
+
+            var embeddedObj = objectGraph.Roots.FirstOrDefault(ogn => ogn.Name == nameof(DeepStruct.Obj));
+            Assert.NotNull(embeddedObj);
+
+            Assert.Contains(embeddedObj!.Children, ogn => ogn.Name == nameof(FlatStruct.Foo) && ogn.Type == typeof(int));
+            Assert.Contains(embeddedObj.Children, ogn => ogn.Name == nameof(FlatStruct.Bar) && ogn.Type == typeof(string));
         }
     }
 }
