@@ -98,6 +98,18 @@ namespace ObjectTreeWalker.Tests
             public FooABC Bar { get; set; } = new();
         }
 
+        internal struct StructWithEmbeddedStruct
+        {
+            public StructWithEmbeddedStruct()
+            {
+                Embedded = new PublicFooBarStruct();
+            }
+
+            public int Foo { get; set; } = 123;
+
+            public PublicFooBarStruct Embedded { get; set; }
+        }
+
         [Fact]
         public void Should_throw_on_pointer() =>
             Assert.Throws<ArgumentException>(() => new ObjectAccessor(typeof(ObjWithPointer)));

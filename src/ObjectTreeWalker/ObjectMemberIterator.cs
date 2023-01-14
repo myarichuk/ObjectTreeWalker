@@ -106,6 +106,30 @@ namespace ObjectTreeWalker
                             root.Name,
                             root.MemberType,
                             obj,
+                            null,
+                            root.MemberInfo.GetUnderlyingType()!,
+                            new List<string> { root.Name }),
+                        rootObjectAccessor), root));
+            }
+        }
+
+        private static void EnqueueObjectRoots(
+            object obj,
+            ObjectGraph objectGraph,
+            in ObjectMemberInfo rawData,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue)
+        {
+            var rootObjectAccessor = GetCachedObjectAccessor(objectGraph.Type);
+
+            foreach (var root in objectGraph.Roots)
+            {
+                traversalQueue.Enqueue(
+                    (new(
+                        new ObjectMemberInfo(
+                            root.Name,
+                            root.MemberType,
+                            obj,
+                            new Ref<ObjectMemberInfo>(rawData),
                             root.MemberInfo.GetUnderlyingType()!,
                             new List<string> { root.Name }),
                         rootObjectAccessor), root));
@@ -191,15 +215,17 @@ namespace ObjectTreeWalker
                     if (current.Node.Type == typeof(object) ||
                         current.Node.Type == typeof(ValueType))
                     {
-                        var actualType = nodeInstance?.GetType()!; // we checked for null already
+                        var actualType = nodeInstance.GetType(); // we checked for null already
+
+                        // got nothing to do!
                         if (actualType == typeof(object) ||
-                            actualType == typeof(ValueType)) // got nothing to do!
+                            actualType == typeof(ValueType))
                         {
                             continue;
                         }
 
                         var actualObjectGraph = _objectEnumerator.Enumerate(actualType);
-                        EnqueueObjectRoots(nodeInstance!, actualObjectGraph, traversalQueue);
+                        EnqueueObjectRoots(nodeInstance!, actualObjectGraph, current.IterationItem.RawInfo, traversalQueue);
                         continue;
                     }
 
@@ -219,6 +245,7 @@ namespace ObjectTreeWalker
                                         child.Name,
                                         child.MemberType,
                                         nodeInstance,
+                                        new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
                                         child.MemberInfo.GetUnderlyingType()!,
                                         current.IterationItem.PropertyPath.Append(child.Name)),
                                     objectAccessor), child));

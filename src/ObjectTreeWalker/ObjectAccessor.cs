@@ -193,7 +193,14 @@ internal class ObjectAccessor
         }
 
         // ReSharper disable once EventExceptionNotDocumented
-        setter(objectInstance, newValue!);
+        try
+        {
+            setter(objectInstance, newValue!);
+        }
+        catch (InvalidCastException e)
+        {
+            throw new InvalidOperationException("Object accessor failed to execute a setter, perhaps the type of the object specified doesn't match the type of the instance?", e);
+        }
     }
 
     private static void ValidateThrowIfNeeded(object source, string memberName)

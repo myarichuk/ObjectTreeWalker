@@ -36,6 +36,11 @@ public readonly struct MemberAccessor
     public MemberType MemberType => _memberInfo.MemberType;
 
     /// <summary>
+    /// Exposing raw data, needed for internal functionality
+    /// </summary>
+    internal ObjectMemberInfo RawInfo => _memberInfo;
+
+    /// <summary>
     /// Accesses and fetches member value
     /// </summary>
     /// <returns>Member value</returns>
@@ -60,6 +65,67 @@ public readonly struct MemberAccessor
     /// Accesses and sets member value
     /// </summary>
     /// <param name="newValue">New member value</param>
-    public void SetValue(object newValue) =>
-        _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
+    /// <exception cref="InvalidOperationException">Failed to fetch parent property name. This is not supposed to happen and is likely an issue.</exception>
+    public void SetValue(object newValue)
+    {
+        // struct properties get special treatment
+        if (_memberInfo.Parent is
+            {
+                Value.Type: { IsPrimitive: false, IsValueType: true } // make sure our "client" is indeed a struct
+            })
+        {
+            if (_memberInfo.Parent is
+                {
+                    Value.Parent: { } parentOfParentRef, // if the struct has a parent, this means it is embedded
+                })
+            {
+                var parentPropertyName = parentOfParentRef.Value.PropertyPath.LastOrDefault();
+                if (parentPropertyName == null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
+                }
+
+                _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
+
+                var objectType = parentOfParentRef.Value.Instance.GetType();
+                var parentOfParentRefAccessor = new ObjectAccessor(objectType);
+
+                if (!parentOfParentRefAccessor.TryGetValue(parentOfParentRef.Value.Instance,
+                        parentOfParentRef.Value.Name,
+                        out var properParentInstance))
+                {
+                    throw new InvalidOperationException(
+                        "Failed to set embedded struct value, this is not supposed to happen and is likely a bug.");
+                }
+
+                var properParentObjectAccessor = new ObjectAccessor(properParentInstance!.GetType());
+
+                properParentObjectAccessor.TrySetValue(
+                    properParentInstance,
+                    _memberInfo.Parent.Value.Name,
+                    _memberInfo.Instance);
+            }
+            else
+            {
+                _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
+
+                var parentPropertyName = _memberInfo.Parent.Value.PropertyPath.LastOrDefault();
+                if (parentPropertyName == null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
+                }
+
+                var parentInstance = _memberInfo.Parent.Value.Instance;
+                var properParentObjectAccessor = new ObjectAccessor(parentInstance.GetType());
+
+                properParentObjectAccessor.TrySetValue(parentInstance, parentPropertyName, _memberInfo.Instance);
+            }
+        }
+        else
+        {
+            _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
+        }
+    }
 }
