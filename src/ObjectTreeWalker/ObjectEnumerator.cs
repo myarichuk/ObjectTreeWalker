@@ -111,8 +111,8 @@ namespace ObjectTreeWalker
                 yield break;
             }
 
-            // nullable is a special case
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            // nullable primitive is a special case
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && type.IsPrimitive)
             {
                 var valueProp = type.GetProperty(nameof(Nullable<bool>.Value), BindingFlags.Instance | BindingFlags.Public);
 
@@ -123,6 +123,19 @@ namespace ObjectTreeWalker
                 }
 
                 yield return new EnumerationItem(valueProp, valueProp.GetMethod != null, valueProp.SetMethod != null, MemberType.Property);
+                yield break;
+            }
+
+            // nullable struct is a special case
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && !type.IsPrimitive)
+            {
+                var structType = type.GenericTypeArguments[0];
+
+                foreach (var item in EnumerateChildMembers(structType))
+                {
+                    yield return item;
+                }
+
                 yield break;
             }
 

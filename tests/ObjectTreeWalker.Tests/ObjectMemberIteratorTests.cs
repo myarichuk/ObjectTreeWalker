@@ -4,6 +4,7 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
+using Fasterflect;
 
 #pragma warning disable CS8605
 #pragma warning disable CS1591
@@ -94,6 +95,55 @@ namespace ObjectTreeWalker.Tests
             public string? StringProperty { get; set; }
         }
 
+        internal struct ComplexFoobarAsStructProperty
+        {
+            public int NumProperty { get; set; }
+
+            public string StringProperty { get; set; }
+
+            public BarFooAsStruct Embedded { get; set; }
+        }
+
+        internal struct ComplexFoobarAsStructField
+        {
+            public int NumProperty { get; set; }
+
+            public string StringProperty { get; set; }
+
+            public BarFooAsStruct Embedded;
+        }
+
+
+        internal class ComplexFoobarClassAsStructProperty
+        {
+            public int NumProperty { get; set; }
+
+            public string StringProperty { get; set; }
+
+            public BarFooAsStruct Embedded { get; set; }
+        }
+
+        internal class ComplexFoobarClassAsStructField
+        {
+            public int NumProperty { get; set; }
+
+            public string StringProperty { get; set; }
+
+            public BarFooAsStruct Embedded { get; set; }
+        }
+
+
+        internal struct BarFooAsStruct
+        {
+            public string AnotherStringProperty { get; set; }
+
+            public int AnotherNumProperty { get; set; }
+
+            public decimal DecimalProperty { get; set; }
+
+            public bool BoolProperty { get; set; }
+        }
+
         // recreation of a class in Fasterflect library (https://github.com/buunguyen/fasterflect)
         // essentially, this is an edge case scenario that needs to be supported
         internal class ValueTypeHolder
@@ -160,6 +210,57 @@ namespace ObjectTreeWalker.Tests
             public string? StringProperty { get; } = "A";
             public string StringProperty2 { get; } = "C";
         }
+
+        //regression test, reproduces an issue
+        [Theory]
+        [InlineData(typeof(ComplexFoobarAsStructProperty))]
+        [InlineData(typeof(ComplexFoobarAsStructField))]
+        [InlineData(typeof(ComplexFoobarClassAsStructProperty))]
+        [InlineData(typeof(ComplexFoobarClassAsStructField))]
+        public void Can_set_properties_in_embedded_structs(Type type)
+        {
+            var objectInstance = CreateEmptyWrappedInstance(type);
+            var iterator = new ObjectMemberIterator();
+
+            iterator.Traverse(
+                objectInstance,
+                (in MemberAccessor accessor) =>
+                {
+                    var memberName = accessor.Name;
+
+                    if (memberName == nameof(ComplexFoobarAsStructProperty.NumProperty))
+                    {
+                        accessor.SetValue(111);
+                    }
+
+                    if (memberName == nameof(ComplexFoobarAsStructProperty.StringProperty))
+                    {
+                        accessor.SetValue("this is a test");
+                    }
+
+                    if (memberName == nameof(ComplexFoobarAsStructProperty.Embedded.AnotherNumProperty))
+                    {
+                        accessor.SetValue(123);
+                    }
+
+                    if (memberName == nameof(ComplexFoobarAsStructProperty.Embedded.AnotherStringProperty))
+                    {
+                        accessor.SetValue("this is a test");
+                    }
+                });
+
+            var unwrappedObject = (dynamic)objectInstance.UnwrapIfWrapped();
+
+            Assert.Equal(111, unwrappedObject.NumProperty);
+            Assert.Equal("this is a test", unwrappedObject.StringProperty);
+
+            Assert.Equal(123, unwrappedObject.Embedded.AnotherNumProperty);
+            Assert.Equal("this is a test", unwrappedObject.Embedded.AnotherStringProperty);
+        }
+
+        private static object CreateEmptyWrappedInstance(Type type) =>
+            RuntimeHelpers.GetUninitializedObject(type)
+                          .WrapIfValueType();
 
         [Fact]
         public void Can_iterate_properties_through_interfaces()
@@ -299,9 +400,6 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal(5, objectAsDynamic.NumProperty);
             Assert.Equal("abc", objectAsDynamic.StringProperty);
         }
-
-        private static object CreateEmptyInstance(Type type) =>
-            RuntimeHelpers.GetUninitializedObject(type);
 
         [Theory]
         [InlineData(typeof(ObjectWithEmbeddedObject))]

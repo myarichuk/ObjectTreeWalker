@@ -6,6 +6,8 @@ namespace ObjectTreeWalker;
 /// </summary>
 internal readonly struct ObjectMemberInfo
 {
+    public Ref<ObjectMemberInfo>? Parent { get; }
+
     /// <summary>
     /// Type of the property/field
     /// </summary>
@@ -26,6 +28,7 @@ internal readonly struct ObjectMemberInfo
     /// </summary>
     public readonly object Instance;
 
+
     /// <summary>
     /// property and it's parents in-order
     /// </summary>
@@ -44,9 +47,12 @@ internal readonly struct ObjectMemberInfo
         string name,
         MemberType memberType,
         object instance,
+        Ref<ObjectMemberInfo>? parent,
         Type type,
         IEnumerable<string> propertyPath)
     {
+        Parent = parent;
+
         Type = type ?? throw new ArgumentNullException(nameof(type));
         PropertyPath = propertyPath ?? throw new ArgumentNullException(nameof(propertyPath));
         Name = name ?? throw new ArgumentNullException(nameof(name));
