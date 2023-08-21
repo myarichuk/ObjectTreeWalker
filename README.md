@@ -1,10 +1,22 @@
 [![Build & Test](https://github.com/myarichuk/ObjectTreeWalker/actions/workflows/on-pull-request.yml/badge.svg)](https://github.com/myarichuk/ObjectTreeWalker/actions/workflows/on-pull-request.yml)
 
-# The What
-ObjectGraphWalker is a simple utility library that allows traversing over C# object properties, Node.js style. Under the hood, the class generates accessors that would speed up the traversal.
+# ObjectGraphWalker
+ObjectGraphWalker is a powerful utility library that enables seamless traversal over C# object properties and fields, Node.js style. Designed with performance and flexibility in mind, it leverages dynamic code generation and caching to provide efficient traversal capabilities.
 
-## The How
-Simply instantiate the class and use the ``ObjectMemberIterator::Traverse()`` method.
+## Features
+- **Fast Traversal**: Utilizes dynamic code generation to create accessors that speed up traversal.
+- **Flexible Filtering**: Allows custom predicates to include or exclude specific members during traversal.
+- **Support for Various Types**: Works with both value and reference types, including generics and embedded structs.
+- **Well-Tested**: Includes comprehensive tests to ensure reliability and correctness.
+
+## Installation
+Simply install the [NuGet Package](https://www.nuget.org/packages/ObjectTreeWalker/)
+
+## Usage Examples
+
+### Simple Example
+A basic example that demonstrates how to traverse an object and access its properties:
+
 ```cs
 var someObject = new SomeObject();
 var iterator = new ObjectMemberIterator();
@@ -13,10 +25,11 @@ iterator.Traverse(someObject, (in MemberAccessor accessor) =>
     var propertyValue = accessor.GetValue();
     prop.SetValue(/* some other value */);
 });
-
 ```
 
-Note 1: it is also possible to use ``predicate`` parameter in the ``ObjectMemberIterator::Traverse()`` method to exclude some members from the iteration. The following example iterates over all fields and properties *if* their name is not Foo1
+### Advanced Example
+An advanced example that shows how to use predicates to filter members and control the traversal behavior:
+
 ```cs
 var someObject = new SomeObject();
 var iterator = new ObjectMemberIterator();
@@ -24,20 +37,18 @@ iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 {
     var propertyValue = accessor.GetValue();
     prop.SetValue(/* some other value */);
-}, (in MemberAccessor accessor) => accessor.Name != "Foo1");
 
-```
-
-Note 2: it is possible to filter for member types (iterate only on properties or fields), like shown in the following code
-```cs
-iterator.Traverse(someObject, (in MemberAccessor accessor) =>
-{
-    // do some operations or mutate data
-}, (in MemberAccessor accessor) => accessor.MemberType != MemberType.Property);
+    //filtering for selective iteration is a simple lambda
+}, (in MemberAccessor accessor) => accessor.Name != "Foo1" && accessor.MemberType != MemberType.Property);
 ```
 
 ## Notes
-* The iterator will read public and private properties and fields but will ignore any static members of the object.
-* The iterator will work on both value and reference types
-* The iterator will ignore backing fields for "auto properties" and it will ignore any compiler generated fields such as closures (unless specified in the constructor)
-* The iterator is fairly well tested by there may be some bugs. If you do see something weird, I'd appreciate an opened issue with a description :)
+- The iterator will read public and private properties and fields but will ignore any static members of the object.
+- The iterator will ignore backing fields for "auto properties" and any compiler-generated fields such as closures (unless specified in the constructor).
+- While the iterator is well-tested, there may be some bugs. If you encounter any issues, please open an issue with a description.
+
+## Contributing
+Any contributions are welcome :)
+
+## License
+[MIT License](LICENSE)
