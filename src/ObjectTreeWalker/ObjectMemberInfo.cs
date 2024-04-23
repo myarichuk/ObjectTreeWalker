@@ -32,7 +32,7 @@ internal readonly struct ObjectMemberInfo
     /// <summary>
     /// property and it's parents in-order
     /// </summary>
-    public readonly IEnumerable<string> PropertyPath;
+    public readonly IEnumerable<PropertyPathItem> PropertyPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ObjectMemberInfo"/> struct.
@@ -49,7 +49,7 @@ internal readonly struct ObjectMemberInfo
         object instance,
         Ref<ObjectMemberInfo>? parent,
         Type type,
-        IEnumerable<string> propertyPath)
+        IEnumerable<PropertyPathItem> propertyPath)
     {
         Parent = parent;
 

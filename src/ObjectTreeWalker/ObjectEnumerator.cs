@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -106,13 +107,16 @@ namespace ObjectTreeWalker
             if (type.IsPrimitive ||
                 type == typeof(string) ||
                 type == typeof(decimal) ||
+                typeof(IEnumerable).IsAssignableFrom(type) || // don't enumerate collections, they get special treatment
                 (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Memory<>)))
             {
                 yield break;
             }
 
             // nullable primitive is a special case
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && type.IsPrimitive)
+            if (type.IsGenericType &&
+                type.GetGenericTypeDefinition() == typeof(Nullable<>) &&
+                type.IsPrimitive)
             {
                 var valueProp = type.GetProperty(nameof(Nullable<bool>.Value), BindingFlags.Instance | BindingFlags.Public);
 
@@ -127,7 +131,9 @@ namespace ObjectTreeWalker
             }
 
             // nullable struct is a special case
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && !type.IsPrimitive)
+            if (type.IsGenericType &&
+                type.GetGenericTypeDefinition() == typeof(Nullable<>) &&
+                !type.IsPrimitive)
             {
                 var structType = type.GenericTypeArguments[0];
 

@@ -20,7 +20,8 @@ namespace ObjectTreeWalker
                 MemberTypes.Field => ((FieldInfo)member).FieldType,
                 MemberTypes.Method => ((MethodInfo)member).ReturnType,
                 MemberTypes.Property => ((PropertyInfo)member).PropertyType,
-                _ => throw new ArgumentException("Input MemberInfo must be if type EventInfo, FieldInfo, MethodInfo, or PropertyInfo"),
+                MemberTypes.TypeInfo => (Type)member,
+                _ => throw new ArgumentException("Input MemberInfo must be if type EventInfo, FieldInfo, MethodInfo, Type or PropertyInfo"),
             };
     }
 }

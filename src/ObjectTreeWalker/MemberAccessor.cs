@@ -1,3 +1,7 @@
+// ReSharper disable TooManyChainedReferences
+
+using System.Collections;
+
 namespace ObjectTreeWalker;
 
 /// <summary>
@@ -44,9 +48,16 @@ public readonly struct MemberAccessor
     /// Accesses and fetches member value
     /// </summary>
     /// <returns>Member value</returns>
-    public object? GetValue() =>
-        !_objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out var value) ?
-            null : value;
+    public object? GetValue()
+    {
+        object value;
+        if (_memberInfo.MemberType == MemberType.CollectionItem)
+        {
+            return _memberInfo.Instance;
+        }
+
+        return !_objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value) ? null : value;
+    }
 
     /// <summary>
     /// Try fetch member value
@@ -59,7 +70,7 @@ public readonly struct MemberAccessor
     /// <summary>
     /// Gets the list of property name and it's parents in-order
     /// </summary>
-    public IEnumerable<string> PropertyPath => _memberInfo.PropertyPath;
+    public IEnumerable<PropertyPathItem> PropertyPath => _memberInfo.PropertyPath;
 
     /// <summary>
     /// Accesses and sets member value
@@ -80,7 +91,7 @@ public readonly struct MemberAccessor
                 })
             {
                 var parentPropertyName = parentOfParentRef.Value.PropertyPath.LastOrDefault();
-                if (parentPropertyName == null)
+                if (parentPropertyName == default)
                 {
                     throw new InvalidOperationException(
                         "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
@@ -110,8 +121,8 @@ public readonly struct MemberAccessor
             {
                 _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
 
-                var parentPropertyName = _memberInfo.Parent.Value.PropertyPath.LastOrDefault();
-                if (parentPropertyName == null)
+                var parentPathItem = _memberInfo.Parent.Value.PropertyPath.LastOrDefault();
+                if (parentPathItem == default)
                 {
                     throw new InvalidOperationException(
                         "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
@@ -120,7 +131,7 @@ public readonly struct MemberAccessor
                 var parentInstance = _memberInfo.Parent.Value.Instance;
                 var properParentObjectAccessor = new ObjectAccessor(parentInstance.GetType());
 
-                properParentObjectAccessor.TrySetValue(parentInstance, parentPropertyName, _memberInfo.Instance);
+                properParentObjectAccessor.TrySetValue(parentInstance, parentPathItem.Name, _memberInfo.Instance);
             }
         }
         else

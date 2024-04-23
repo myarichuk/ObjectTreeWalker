@@ -1,4 +1,7 @@
+using System;
+using System.Collections;
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.ObjectPool;
 // ReSharper disable ComplexConditionExpression
@@ -108,7 +111,7 @@ namespace ObjectTreeWalker
                             obj,
                             null,
                             root.MemberInfo.GetUnderlyingType()!,
-                            new List<string> { root.Name }),
+                            new [] { new PropertyPathItem(root.Name) }),
                         rootObjectAccessor), root));
             }
         }
@@ -131,7 +134,7 @@ namespace ObjectTreeWalker
                             obj,
                             new Ref<ObjectMemberInfo>(rawData),
                             root.MemberInfo.GetUnderlyingType()!,
-                            new List<string> { root.Name }),
+                            new [] { new PropertyPathItem(root.Name) }),
                         rootObjectAccessor), root));
             }
         }
@@ -146,7 +149,10 @@ namespace ObjectTreeWalker
         /// <returns>iteration context instance</returns>
         /// <exception cref="InvalidOperationException">Invalid (null) item in the iteration queue. This is not supposed to happen and is likely an issue that should be reported.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="obj"/> or <paramref name="visitorFunc"/> is <see langword="null"/></exception>
-        public TContext Traverse<TContext>(object obj, VisitorWithContextFunc<TContext> visitorFunc, PredicateWithContextFunc<TContext>? predicate = null)
+        public TContext Traverse<TContext>(
+            object obj,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            PredicateWithContextFunc<TContext>? predicate = null)
             where TContext : new() =>
             Traverse(obj, visitorFunc, new TContext(), predicate);
 
@@ -161,7 +167,20 @@ namespace ObjectTreeWalker
         /// <returns>iteration context instance</returns>
         /// <exception cref="InvalidOperationException">Invalid (null) item in the iteration queue. This is not supposed to happen and is likely an issue that should be reported.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="obj"/> or <paramref name="visitorFunc"/> is <see langword="null"/></exception>
-        public TContext Traverse<TContext>(object obj, VisitorWithContextFunc<TContext> visitorFunc, in TContext iterationContext, PredicateWithContextFunc<TContext>? predicate = null)
+        public TContext Traverse<TContext>(
+            object obj,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            in TContext iterationContext,
+            PredicateWithContextFunc<TContext>? predicate = null)
+            where TContext : new() =>
+            Traverse(obj, visitorFunc, in iterationContext, predicate, []);
+
+        private TContext Traverse<TContext>(
+            object obj,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            in TContext iterationContext,
+            PredicateWithContextFunc<TContext>? predicate,
+            IEnumerable<PropertyPathItem> propertyPathPrefix)
             where TContext : new()
         {
             if (obj == null)
@@ -184,7 +203,7 @@ namespace ObjectTreeWalker
             {
                 EnqueueObjectRoots(obj, objectGraph, traversalQueue);
 
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
                 while (traversalQueue.TryDequeue(out var current))
                 {
 #else
@@ -207,11 +226,11 @@ namespace ObjectTreeWalker
                     }
 
                     /*
-                           * Handle the edge-case where our member value is an upcast version of the object ->
-                           * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
-                           * would enumerate the members of a base object at this point.
-                           * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
-                          */
+                       * Handle the edge-case where our member value is an upcast version of the object ->
+                       * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
+                       * would enumerate the members of a base object at this point.
+                       * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
+                    */
                     if (current.Node.Type == typeof(object) ||
                         current.Node.Type == typeof(ValueType))
                     {
@@ -226,6 +245,52 @@ namespace ObjectTreeWalker
 
                         var actualObjectGraph = _objectEnumerator.Enumerate(actualType);
                         EnqueueObjectRoots(nodeInstance!, actualObjectGraph, current.IterationItem.RawInfo, traversalQueue);
+                        continue;
+                    }
+
+                    if (nodeInstance is IEnumerable instanceAsEnumerable and not string)
+                    {
+                        var index = 0;
+                        foreach (var arrayItem in instanceAsEnumerable)
+                        {
+                            if (arrayItem != null) // just in case
+                            {
+                                var itemName = PropertyNameWithIndex(current, index);
+                                var itemMemberInfo = (MemberInfo)arrayItem.GetType();
+
+                                var propertyPath =
+                                    propertyPathPrefix.Concat(
+                                        current.IterationItem.PropertyPath.SkipLast(1)
+                                            .Append(new PropertyPathItem(itemName, index)));
+
+                                if (((Type)itemMemberInfo).IsPrimitive)
+                                {
+                                    traversalQueue.Enqueue(
+                                        (new(
+                                            new ObjectMemberInfo(
+                                                itemName,
+                                                MemberType.CollectionItem,
+                                                arrayItem,
+                                                new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
+                                                arrayItem.GetType(),
+                                                propertyPath),
+                                            objectAccessor),
+                                            new ObjectGraphNode(itemMemberInfo, current.Node)));
+                                }
+                                else
+                                {
+                                    Traverse(
+                                        arrayItem,
+                                        visitorFunc,
+                                        in iterationContext,
+                                        predicate,
+                                        propertyPath);
+                                }
+                            }
+
+                            index++;
+                        }
+
                         continue;
                     }
 
@@ -247,7 +312,7 @@ namespace ObjectTreeWalker
                                         nodeInstance,
                                         new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
                                         child.MemberInfo.GetUnderlyingType()!,
-                                        current.IterationItem.PropertyPath.Append(child.Name)),
+                                        propertyPathPrefix.Concat(current.IterationItem.PropertyPath.Append(new PropertyPathItem(child.Name)))),
                                     objectAccessor), child));
                         }
                     }
@@ -259,6 +324,9 @@ namespace ObjectTreeWalker
             }
 
             return context;
+
+            string PropertyNameWithIndex((MemberAccessor IterationItem, ObjectGraphNode Node) current, int index) => 
+                $"{current.Node.Name}[{index}]";
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

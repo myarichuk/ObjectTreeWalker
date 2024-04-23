@@ -19,5 +19,10 @@ namespace ObjectTreeWalker
         /// Indicates that a member is a property
         /// </summary>
         Property,
+
+        /// <summary>
+        /// Indicates that a member is an item in a collection
+        /// </summary>
+        CollectionItem
     }
 }
