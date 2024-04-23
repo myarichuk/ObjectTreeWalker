@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0;netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net6.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <Title>Object Tree Walker</Title>
     <Description>A simple utility class that allows traversing over C# object properties, Node.js style</Description>
@@ -9,6 +9,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/myarichuk/ObjectTreeWalker</RepositoryUrl>
     <PackageTags>object graph;property iteration;property walker;property enumerator;enumerator;object enumerate;object;iterate;iterator</PackageTags>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +25,8 @@
   </ItemGroup>
 
     <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="*" />
+    <PackageReference Include="CodeProject.ObjectPool" Version="6.5.0" />
+    <PackageReference Include="CodeProject.ObjectPool.MicrosoftExtensionsAdapter" Version="6.5.0" />
     <PackageReference Include="Sigil" Version="*" />
     <PackageReference Include="System.Memory" Version="*" />
   </ItemGroup>

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -17,7 +18,7 @@ internal class ObjectAccessor
 {
     private static readonly ConcurrentDictionary<Type, MethodInfo> GetDefaultCache = new();
     private readonly Type _objectType;
-    private readonly bool _isStringAccessor;
+    private readonly bool _iUnsupportedAccessor;
     private readonly Dictionary<string, Func<object, object>> _getPropertyMethods = new();
     private readonly Dictionary<string, Action<object, object>> _setPropertyMethods = new();
 
@@ -39,8 +40,8 @@ internal class ObjectAccessor
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a pointer, it is not supported by {nameof(ObjectAccessor)}.");
         }
 
-#if NET6_0_OR_GREATER
-        if (objectType.IsValueType && objectType.IsByRefLike)
+#if NET8_0_OR_GREATER
+        if (objectType is { IsValueType: true, IsByRefLike: true })
         {
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
         }
@@ -48,9 +49,9 @@ internal class ObjectAccessor
 
         _objectType = objectType;
 
-        if (objectType == typeof(string))
+        if (objectType == typeof(string) || typeof(IEnumerable).IsAssignableFrom(objectType))
         {
-            _isStringAccessor = true;
+            _iUnsupportedAccessor = true;
             return;
         }
 
@@ -102,7 +103,7 @@ internal class ObjectAccessor
         value = default;
 
         // strings have no valid members to access!
-        if (_isStringAccessor)
+        if (_iUnsupportedAccessor)
         {
             return false;
         }
@@ -114,6 +115,24 @@ internal class ObjectAccessor
 
         return _getFieldMethods.TryGetValue(memberName, out var getterFieldFunc) &&
                TryExecuteGetter(source, out value, getterFieldFunc);
+    }
+
+    public bool TryGetValue(IEnumerable source, uint index, out object? value)
+    {
+        value = default;
+
+        var currentIndex = 0;
+
+        foreach (var item in source)
+        {
+            if (index == currentIndex++)
+            {
+                value = item;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -129,7 +148,7 @@ internal class ObjectAccessor
         ValidateThrowIfNeeded(source, memberName);
 
         // strings have no valid members to access!
-        if (_isStringAccessor)
+        if (_iUnsupportedAccessor)
         {
             return false;
         }
@@ -384,7 +403,7 @@ internal class ObjectAccessor
 
     private void AddPropertyToCacheIfNeeded(PropertyInfo propertyInfo)
     {
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
         _propertyCache.TryAdd(propertyInfo.Name, propertyInfo);
 #else
         if (!_propertyCache.ContainsKey(propertyInfo.Name))
@@ -396,7 +415,7 @@ internal class ObjectAccessor
 
     private void AddFieldToCacheIfNeeded(FieldInfo fieldInfo)
     {
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
         _fieldCache.TryAdd(fieldInfo.Name, fieldInfo);
 #else
         if (!_fieldCache.ContainsKey(fieldInfo.Name))
