@@ -2,6 +2,8 @@
 // ReSharper disable ExceptionNotDocumented
 // ReSharper disable ExceptionNotDocumented
 
+using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using Fasterflect;
@@ -169,6 +171,42 @@ namespace ObjectTreeWalker.Tests
             public int Foo1 { get; set; } = 111;
             public int Foo2 { get; set; } = 222;
             public int Foo3 { get; set; } = 333;
+        }
+
+        public class FooBarWithConcurrentBag
+        {
+            public int Foo1 { get; set; } = 111;
+            public ConcurrentBag<int> Inner { get; set; } = [123, 456, 789];
+        }
+
+        public class FooBarWithArray
+        {
+            public int Foo1 { get; set; } = 111;
+            public int[] Inner { get; set; } = [123, 456, 789];
+        }
+
+        public class FooBarWithList
+        {
+            public int Foo1 { get; set; } = 111;
+            public List<int> Inner { get; set; } = [123, 456, 789];
+        }
+
+        public class ComplexFooBarWithConcurrentBag
+        {
+            public int Foo1 { get; set; } = 111;
+            public FooBarWithConcurrentBag[] Outer { get; set; } = [new(), new(), new()];
+        }
+
+        public class ComplexFooBarWithArray
+        {
+            public int Foo1 { get; set; } = 111;
+            public FooBarWithArray[] Outer { get; set; } = [new(), new(), new()];
+        }
+
+        public class ComplexFooBarWithList
+        {
+            public int Foo1 { get; set; } = 111;
+            public List<FooBarWithList> Outer { get; set; } = [new(), new(), new()];
         }
 
         public class ComplexFooBar
@@ -595,7 +633,7 @@ namespace ObjectTreeWalker.Tests
         public void Can_see_property_path_when_iterating()
         {
             var iterator = new ObjectMemberIterator();
-            var propertyPaths = new List<IEnumerable<string>>();
+            var propertyPaths = new List<IEnumerable<PropertyPathItem>>();
 
             iterator.Traverse(new ComplexFooBar(),
                 (in MemberAccessor accessor) =>
@@ -603,15 +641,15 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Collection(propertyPaths,
                 propertyPath =>
-                    Assert.Equal("Foo1", string.Join(",",propertyPath)),
+                    Assert.Equal("Foo1", string.Join(",",propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Foo4", string.Join(",",propertyPath)),
+                    Assert.Equal("Foo4", string.Join(",",propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo1", string.Join(",",propertyPath)),
+                    Assert.Equal("Obj,Foo1", string.Join(",",propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo2", string.Join(",",propertyPath)),
+                    Assert.Equal("Obj,Foo2", string.Join(",",propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo3", string.Join(",",propertyPath))
+                    Assert.Equal("Obj,Foo3", string.Join(",",propertyPath.Select(x => x.Name)))
             );
         }
 
@@ -671,6 +709,52 @@ namespace ObjectTreeWalker.Tests
                 item => Assert.Equal(111, item),
                 item => Assert.Equal(222, item),
                 item => Assert.Equal(333, item));
+        }
+
+        [Theory]
+        [InlineData(typeof(FooBarWithArray))]
+        [InlineData(typeof(FooBarWithList))]
+        [InlineData(typeof(FooBarWithConcurrentBag))]
+        public void Can_iterate_collection_property(Type t)
+        {
+            var iterator = new ObjectMemberIterator();
+            var arraySum = 0;
+            int[] expectedArray = [123, 456, 789];
+            var fetchedItems = new List<int>();
+
+            iterator.Traverse(Activator.CreateInstance(t), (in MemberAccessor accessor) =>
+            {
+                var propertyPathAsString = accessor.PropertyPath.Select(x => x.Name);
+                if (accessor.PropertyPath.Last().IsPartOfCollection)
+                {
+                    fetchedItems.Add((int)accessor.GetValue());
+                }
+            });
+
+            Assert.Equal(expectedArray.OrderBy(x => x), fetchedItems.OrderBy(x => x));
+        }
+
+        [Theory]
+        [InlineData(typeof(ComplexFooBarWithArray))]
+        [InlineData(typeof(ComplexFooBarWithList))]
+        [InlineData(typeof(ComplexFooBarWithConcurrentBag))]
+        public void Can_iterate_deep_collection_property(Type t)
+        {
+            var iterator = new ObjectMemberIterator();
+            var arraySum = 0;
+            int[] expectedArray = [123, 456, 789];
+            var fetchedItems = new List<int>();
+
+            iterator.Traverse(Activator.CreateInstance(t), (in MemberAccessor accessor) =>
+            {
+                if (accessor.RawInfo.MemberType == MemberType.CollectionItem)
+                {
+                    fetchedItems.Add((int)accessor.GetValue());
+                }
+            });
+
+            Assert.Equal(expectedArray.Concat(expectedArray).Concat(expectedArray).OrderBy(x => x), 
+                fetchedItems.OrderBy(x => x));
         }
     }
 }
