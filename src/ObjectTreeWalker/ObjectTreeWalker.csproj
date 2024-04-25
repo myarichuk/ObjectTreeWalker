@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net6.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net6.0;netstandard2.1</TargetFrameworks>
     <Nullable>enable</Nullable>
     <Title>Object Tree Walker</Title>
     <Description>A simple utility class that allows traversing over C# object properties, Node.js style</Description>
@@ -25,8 +25,7 @@
   </ItemGroup>
 
     <ItemGroup>
-    <PackageReference Include="CodeProject.ObjectPool" Version="6.5.0" />
-    <PackageReference Include="CodeProject.ObjectPool.MicrosoftExtensionsAdapter" Version="6.5.0" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="*" />
     <PackageReference Include="Sigil" Version="*" />
     <PackageReference Include="System.Memory" Version="*" />
   </ItemGroup>
