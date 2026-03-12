@@ -2,10 +2,10 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+
 // ReSharper disable ComplexConditionExpression
 // ReSharper disable MethodTooLong
 // ReSharper disable CognitiveComplexity
-
 namespace ObjectTreeWalker
 {
     /// <summary>

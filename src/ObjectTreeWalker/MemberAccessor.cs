@@ -1,4 +1,5 @@
-// ReSharper disable TooManyChainedReferences
+// Copyright (c) Michael Yarichuk. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections;
 
@@ -40,7 +41,7 @@ public readonly struct MemberAccessor
     public MemberType MemberType => _memberInfo.MemberType;
 
     /// <summary>
-    /// Exposing raw data, needed for internal functionality
+    /// Gets exposing raw data, needed for internal functionality
     /// </summary>
     internal ObjectMemberInfo RawInfo => _memberInfo;
 
@@ -102,9 +103,10 @@ public readonly struct MemberAccessor
                 var objectType = parentOfParentRef.Value.Instance.GetType();
                 var parentOfParentRefAccessor = new ObjectAccessor(objectType);
 
-                if (!parentOfParentRefAccessor.TryGetValue(parentOfParentRef.Value.Instance,
-                        parentOfParentRef.Value.Name,
-                        out var properParentInstance))
+                if (!parentOfParentRefAccessor.TryGetValue(
+                    parentOfParentRef.Value.Instance,
+                    parentOfParentRef.Value.Name,
+                    out var properParentInstance))
                 {
                     throw new InvalidOperationException(
                         "Failed to set embedded struct value, this is not supposed to happen and is likely a bug.");
