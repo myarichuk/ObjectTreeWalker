@@ -87,7 +87,7 @@ namespace ObjectTreeWalker.Tests
 
         public class ObjectWithUpcastProperty
         {
-            public object Value { get; set; }
+            public object? Value { get; set; }
         }
 
         public struct JustAFoobarStruct
@@ -120,7 +120,7 @@ namespace ObjectTreeWalker.Tests
         {
             public int NumProperty { get; set; }
 
-            public string StringProperty { get; set; }
+            public string? StringProperty { get; set; }
 
             public BarFooAsStruct Embedded { get; set; }
         }
@@ -129,7 +129,7 @@ namespace ObjectTreeWalker.Tests
         {
             public int NumProperty { get; set; }
 
-            public string StringProperty { get; set; }
+            public string? StringProperty { get; set; }
 
             public BarFooAsStruct Embedded { get; set; }
         }
@@ -157,7 +157,7 @@ namespace ObjectTreeWalker.Tests
             /// Must be a derivative of <code>ValueType</code>.</param>
             public ValueTypeHolder(object value)
             {
-                Value = (ValueType) value;
+                Value = (ValueType)value;
             }
 
             /// <summary>
@@ -348,7 +348,9 @@ namespace ObjectTreeWalker.Tests
         [InlineData(typeof(JustAFoobarStruct))]
         public void Can_iterate_uninitialized_object(Type typeOfObject)
         {
+            #pragma warning disable SYSLIB0050
             var emptyInstance = FormatterServices.GetUninitializedObject(typeOfObject);
+#pragma warning restore SYSLIB0050
             var iterator = new ObjectMemberIterator();
 
             iterator.Traverse(emptyInstance, (in MemberAccessor accessor) =>
@@ -378,7 +380,9 @@ namespace ObjectTreeWalker.Tests
         [Fact]
         public void Can_iterate_wrapped_struct()
         {
+            #pragma warning disable SYSLIB0050
             var emptyInstance = (JustAFoobarStruct)FormatterServices.GetUninitializedObject(typeof(JustAFoobarStruct));
+#pragma warning restore SYSLIB0050
             var wrappedInstance = new ValueTypeHolder(emptyInstance);
 
             var iterator = new ObjectMemberIterator();
@@ -410,8 +414,10 @@ namespace ObjectTreeWalker.Tests
         [Fact]
         public void Can_iterate_wrapped_obj()
         {
+            #pragma warning disable SYSLIB0050
             var emptyInstance = (JustAFoobarObj)FormatterServices.GetUninitializedObject(typeof(JustAFoobarObj));
-            var wrappedInstance = new ObjectWithUpcastProperty{ Value = emptyInstance };
+#pragma warning restore SYSLIB0050
+            var wrappedInstance = new ObjectWithUpcastProperty { Value = emptyInstance };
 
             var iterator = new ObjectMemberIterator();
 
@@ -446,7 +452,9 @@ namespace ObjectTreeWalker.Tests
         [InlineData(typeof(ObjectWithEmbeddedStruct))]
         public void Can_iterate_embedded_property(Type type)
         {
+            #pragma warning disable SYSLIB0050
             var instance = FormatterServices.GetUninitializedObject(type);
+#pragma warning restore SYSLIB0050
             var iterator = new ObjectMemberIterator();
 
             iterator.Traverse(instance, (in MemberAccessor accessor) =>
@@ -468,7 +476,9 @@ namespace ObjectTreeWalker.Tests
 
                 if (accessor.Name.Contains("Embedded"))
                 {
+                    #pragma warning disable SYSLIB0050
                     var embeddedObject = (dynamic)FormatterServices.GetUninitializedObject(accessor.Type);
+#pragma warning restore SYSLIB0050
                     embeddedObject.AnotherNumProperty = 123;
                     accessor.SetValue(embeddedObject);
                 }
@@ -641,15 +651,15 @@ namespace ObjectTreeWalker.Tests
 
             Assert.Collection(propertyPaths,
                 propertyPath =>
-                    Assert.Equal("Foo1", string.Join(",",propertyPath.Select(x => x.Name))),
+                    Assert.Equal("Foo1", string.Join(",", propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Foo4", string.Join(",",propertyPath.Select(x => x.Name))),
+                    Assert.Equal("Foo4", string.Join(",", propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo1", string.Join(",",propertyPath.Select(x => x.Name))),
+                    Assert.Equal("Obj,Foo1", string.Join(",", propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo2", string.Join(",",propertyPath.Select(x => x.Name))),
+                    Assert.Equal("Obj,Foo2", string.Join(",", propertyPath.Select(x => x.Name))),
                 propertyPath =>
-                    Assert.Equal("Obj,Foo3", string.Join(",",propertyPath.Select(x => x.Name)))
+                    Assert.Equal("Obj,Foo3", string.Join(",", propertyPath.Select(x => x.Name)))
             );
         }
 
@@ -718,11 +728,10 @@ namespace ObjectTreeWalker.Tests
         public void Can_iterate_collection_property(Type t)
         {
             var iterator = new ObjectMemberIterator();
-            var arraySum = 0;
             int[] expectedArray = [123, 456, 789];
             var fetchedItems = new List<int>();
 
-            iterator.Traverse(Activator.CreateInstance(t), (in MemberAccessor accessor) =>
+            iterator.Traverse(Activator.CreateInstance(t)!, (in MemberAccessor accessor) =>
             {
                 var propertyPathAsString = accessor.PropertyPath.Select(x => x.Name);
                 if (accessor.PropertyPath.Last().IsPartOfCollection)
@@ -741,11 +750,10 @@ namespace ObjectTreeWalker.Tests
         public void Can_iterate_deep_collection_property(Type t)
         {
             var iterator = new ObjectMemberIterator();
-            var arraySum = 0;
             int[] expectedArray = [123, 456, 789];
             var fetchedItems = new List<int>();
 
-            iterator.Traverse(Activator.CreateInstance(t), (in MemberAccessor accessor) =>
+            iterator.Traverse(Activator.CreateInstance(t)!, (in MemberAccessor accessor) =>
             {
                 if (accessor.RawInfo.MemberType == MemberType.CollectionItem)
                 {
@@ -753,7 +761,7 @@ namespace ObjectTreeWalker.Tests
                 }
             });
 
-            Assert.Equal(expectedArray.Concat(expectedArray).Concat(expectedArray).OrderBy(x => x), 
+            Assert.Equal(expectedArray.Concat(expectedArray).Concat(expectedArray).OrderBy(x => x),
                 fetchedItems.OrderBy(x => x));
         }
     }

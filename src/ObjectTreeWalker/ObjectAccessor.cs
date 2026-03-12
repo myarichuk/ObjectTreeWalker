@@ -5,8 +5,8 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Sigil;
-// ReSharper disable ComplexConditionExpression
 
+// ReSharper disable ComplexConditionExpression
 namespace ObjectTreeWalker;
 
 /// <summary>

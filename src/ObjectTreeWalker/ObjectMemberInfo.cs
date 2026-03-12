@@ -1,4 +1,6 @@
-// ReSharper disable TooManyDependencies
+// Copyright (c) Michael Yarichuk. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 namespace ObjectTreeWalker;
 
 /// <summary>
@@ -27,7 +29,6 @@ internal readonly struct ObjectMemberInfo
     /// Gets parent object instance
     /// </summary>
     public readonly object Instance;
-
 
     /// <summary>
     /// property and it's parents in-order

@@ -23,6 +23,6 @@ namespace ObjectTreeWalker
         /// <summary>
         /// Indicates that a member is an item in a collection
         /// </summary>
-        CollectionItem
+        CollectionItem,
     }
 }

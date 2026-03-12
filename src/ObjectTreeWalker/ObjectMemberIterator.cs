@@ -4,8 +4,8 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.ObjectPool;
-// ReSharper disable ComplexConditionExpression
 
+// ReSharper disable ComplexConditionExpression
 namespace ObjectTreeWalker
 {
     /// <summary>
@@ -45,10 +45,11 @@ namespace ObjectTreeWalker
     {
         private static readonly ConcurrentDictionary<Type, ObjectAccessor> ObjectAccessorCache = new();
         private static readonly object EmptyContext = new();
+        private static ObjectEnumerator.Settings? _enumeratorSettings;
+
         private static readonly ObjectPool<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>> TraversalQueuePool =
             new DefaultObjectPoolProvider().Create<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>>();
 
-        private static ObjectEnumerator.Settings? _enumeratorSettings;
         private readonly ObjectEnumerator _objectEnumerator;
 
         /// <summary>
@@ -78,6 +79,10 @@ namespace ObjectTreeWalker
 
             _objectEnumerator = new(_enumeratorSettings);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ObjectAccessor GetCachedObjectAccessor(Type type) =>
+            ObjectAccessorCache.GetOrAdd(type, t => new ObjectAccessor(t));
 
         /// <summary>
         /// Traverse over object members and possibly apply action to mutate the data
@@ -111,7 +116,7 @@ namespace ObjectTreeWalker
                             obj,
                             null,
                             root.MemberInfo.GetUnderlyingType()!,
-                            new [] { new PropertyPathItem(root.Name) }),
+                            new[] { new PropertyPathItem(root.Name) }),
                         rootObjectAccessor), root));
             }
         }
@@ -134,7 +139,7 @@ namespace ObjectTreeWalker
                             obj,
                             new Ref<ObjectMemberInfo>(rawData),
                             root.MemberInfo.GetUnderlyingType()!,
-                            new [] { new PropertyPathItem(root.Name) }),
+                            new[] { new PropertyPathItem(root.Name) }),
                         rootObjectAccessor), root));
             }
         }
@@ -325,12 +330,9 @@ namespace ObjectTreeWalker
 
             return context;
 
-            string PropertyNameWithIndex((MemberAccessor IterationItem, ObjectGraphNode Node) current, int index) => 
+            string PropertyNameWithIndex((MemberAccessor IterationItem, ObjectGraphNode Node) current, int index) =>
                 $"{current.Node.Name}[{index}]";
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ObjectAccessor GetCachedObjectAccessor(Type type) =>
-            ObjectAccessorCache.GetOrAdd(type, t => new ObjectAccessor(t));
     }
 }

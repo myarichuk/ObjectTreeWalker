@@ -19,7 +19,7 @@ namespace ObjectTreeWalker.Tests
 
         public class ObjWithString
         {
-            public string Str { get; set; }
+            public string? Str { get; set; }
         }
 
         public class ObjWithDecimal
@@ -29,7 +29,7 @@ namespace ObjectTreeWalker.Tests
 
         public class ObjWithDynamic
         {
-            public dynamic DynamicObj { get; set; }
+            public dynamic? DynamicObj { get; set; }
         }
 
         public class FlatObj
