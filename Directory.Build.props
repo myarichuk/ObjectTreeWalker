@@ -16,7 +16,14 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Exclude the output of source generators from the compilation -->
+    <Compile Remove="Generated/**/*.cs" />
+  </ItemGroup>
+
+  <PropertyGroup>
     <!-- https://github.com/dotnet/msbuild/blob/main/documentation/ProjectReference-Protocol.md#setplatform-negotiation -->
     <EnableDynamicPlatformResolution>true</EnableDynamicPlatformResolution>
 
