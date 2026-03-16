@@ -2,6 +2,9 @@ using System.Reflection;
 
 namespace ObjectTreeWalker;
 
+/// <summary>
+/// Graph node representing a member in the ObjectGraph.
+/// </summary>
 internal record ObjectGraphNode
 {
     /// <summary>

@@ -117,6 +117,13 @@ internal class ObjectAccessor
                TryExecuteGetter(source, out value, getterFieldFunc);
     }
 
+    /// <summary>
+    /// Try fetching the item from the collection using index
+    /// </summary>
+    /// <param name="source">IEnumerable collection</param>
+    /// <param name="index">index of the item</param>
+    /// <param name="value">value fetched or a default value</param>
+    /// <returns>true if fetching successful, false otherwise</returns>
     public bool TryGetValue(IEnumerable source, uint index, out object? value)
     {
         value = default;

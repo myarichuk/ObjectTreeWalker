@@ -1,5 +1,8 @@
 namespace ObjectTreeWalker;
 
+/// <summary>
+/// Internal class to represent an object graph.
+/// </summary>
 internal record ObjectGraph
 {
     /// <summary>

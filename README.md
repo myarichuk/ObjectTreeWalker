@@ -7,6 +7,7 @@ ObjectGraphWalker is a powerful utility library that enables seamless traversal 
 - **Fast Traversal**: Utilizes dynamic code generation to create accessors that speed up traversal.
 - **Flexible Filtering**: Allows custom predicates to include or exclude specific members during traversal.
 - **Support for Various Types**: Works with both value and reference types, including generics and embedded structs.
+- **Deep Cloning**: Includes a high-performance deep clone extension method for complex object graphs.
 - **Well-Tested**: Includes comprehensive tests to ensure reliability and correctness.
 
 ## Installation
@@ -40,6 +41,14 @@ iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 
     //filtering for selective iteration is a simple lambda
 }, (in MemberAccessor accessor) => accessor.Name != "Foo1" && accessor.MemberType != MemberType.Property);
+```
+
+### Deep Cloning
+You can easily create deep clones of any object using the provided extension method:
+
+```cs
+var someObject = new SomeObject();
+var clone = someObject.DeepClone();
 ```
 
 ## Notes
