@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.Text;
 namespace ObjectTreeWalker.SourceGenerator
 {
     [Generator(LanguageNames.CSharp)]
-    public class DeepCloneGenerator : IIncrementalGenerator
+    public class ObjectWalkerGenerator : IIncrementalGenerator
     {
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
@@ -34,7 +34,7 @@ namespace ObjectTreeWalker.SourceGenerator
                 {
                     if (context.SemanticModel.GetSymbolInfo(attributeSyntax).Symbol is IMethodSymbol attributeSymbol)
                     {
-                        if (attributeSymbol.ContainingType.ToDisplayString() == "ObjectTreeWalker.DeepCloneableAttribute")
+                        if (attributeSymbol.ContainingType.ToDisplayString() == "ObjectTreeWalker.ObjectWalkableAttribute")
                         {
                             return classDeclaration;
                         }
@@ -57,7 +57,7 @@ namespace ObjectTreeWalker.SourceGenerator
                 if (symbol == null) continue;
 
                 var source = ProcessClass(symbol);
-                context.AddSource($"{symbol.Name}_DeepClone.g.cs", SourceText.From(source, Encoding.UTF8));
+                context.AddSource($"{symbol.Name}_Walk.g.cs", SourceText.From(source, Encoding.UTF8));
             }
         }
 
@@ -78,38 +78,40 @@ namespace ObjectTreeWalker.SourceGenerator
 
             sb.AppendLine($"    partial class {className}");
             sb.AppendLine("    {");
-            sb.AppendLine($"        public {className} DeepClone(ObjectTreeWalker.CloningContext? ctx = null)");
+            sb.AppendLine("        public void Walk(ObjectTreeWalker.IObjectVisitor visitor)");
             sb.AppendLine("        {");
-            sb.AppendLine("            var isRoot = ctx == null;");
-            sb.AppendLine("            ctx ??= new ObjectTreeWalker.CloningContext();");
+            sb.AppendLine("            var queue = ObjectTreeWalker.CollectionPools.RentBfsQueue();");
+            sb.AppendLine("            var visited = ObjectTreeWalker.CollectionPools.RentVisitedDictionary();");
             sb.AppendLine("            try");
             sb.AppendLine("            {");
-            sb.AppendLine($"                if (ctx.TryGetClone(this, out var existingClone)) return ({className})existingClone!;");
-            sb.AppendLine($"                var clone = new {className}();");
-            sb.AppendLine("                ctx.RecordClone(this, clone);");
+            sb.AppendLine("                queue.Enqueue(this);");
+            sb.AppendLine("                visited[this] = null!;");
+            sb.AppendLine("                while (queue.Count > 0)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var current = queue.Dequeue();");
+            sb.AppendLine("                    visitor.Visit(current);");
+            sb.AppendLine($"                    if (current is {className} typedCurrent)");
+            sb.AppendLine("                    {");
 
             foreach (var member in classSymbol.GetMembers().OfType<IPropertySymbol>())
             {
-                if (member.SetMethod != null && member.SetMethod.DeclaredAccessibility == Accessibility.Public)
+                if (member.GetMethod != null && member.GetMethod.DeclaredAccessibility == Accessibility.Public && !member.Type.IsValueType && member.Type.SpecialType != SpecialType.System_String)
                 {
-                    if (member.Type.IsValueType || member.Type.SpecialType == SpecialType.System_String)
-                    {
-                        sb.AppendLine($"                clone.{member.Name} = this.{member.Name};");
-                    }
-                    else
-                    {
-                        // Assuming simple recursive DeepClone generation for reference types that are [DeepCloneable] for now
-                        // In reality, this would need to check if member.Type is DeepCloneable, collection, etc.
-                        sb.AppendLine($"                clone.{member.Name} = this.{member.Name}?.DeepClone(ctx);");
-                    }
+                    sb.AppendLine($"                        if (typedCurrent.{member.Name} != null && !visited.ContainsKey(typedCurrent.{member.Name}))");
+                    sb.AppendLine("                        {");
+                    sb.AppendLine($"                            visited[typedCurrent.{member.Name}] = null!;");
+                    sb.AppendLine($"                            queue.Enqueue(typedCurrent.{member.Name});");
+                    sb.AppendLine("                        }");
                 }
             }
 
-            sb.AppendLine("                return clone;");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                }");
             sb.AppendLine("            }");
             sb.AppendLine("            finally");
             sb.AppendLine("            {");
-            sb.AppendLine("                if (isRoot) ctx.Dispose();");
+            sb.AppendLine("                ObjectTreeWalker.CollectionPools.ReturnBfsQueue(queue);");
+            sb.AppendLine("                ObjectTreeWalker.CollectionPools.ReturnVisitedDictionary(visited);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("    }");

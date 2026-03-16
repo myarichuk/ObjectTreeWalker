@@ -1,6 +1,6 @@
 #pragma warning disable CS1591
+using System;
 using System.Collections.Generic;
-
 using System.Runtime.CompilerServices;
 
 namespace ObjectTreeWalker
@@ -16,9 +16,14 @@ namespace ObjectTreeWalker
         public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
     }
 
-    public class CloningContext
+    public class CloningContext : IDisposable
     {
-        private readonly Dictionary<object, object> _visited = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, object> _visited;
+
+        public CloningContext()
+        {
+            _visited = CollectionPools.RentVisitedDictionary();
+        }
 
         public bool TryGetClone(object original, out object? clone)
         {
@@ -28,6 +33,11 @@ namespace ObjectTreeWalker
         public void RecordClone(object original, object clone)
         {
             _visited[original] = clone;
+        }
+
+        public void Dispose()
+        {
+            CollectionPools.ReturnVisitedDictionary(_visited);
         }
     }
 }
