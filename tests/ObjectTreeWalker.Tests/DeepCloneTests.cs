@@ -7,6 +7,12 @@ namespace ObjectTreeWalker.Tests
 {
     public class DeepCloneTests
     {
+        public enum TestEnum
+        {
+            Value1,
+            Value2
+        }
+
         public class SimpleClass
         {
             public int Id { get; set; }
@@ -36,6 +42,56 @@ namespace ObjectTreeWalker.Tests
         {
             public ClassWithCircularRef? Self { get; set; }
             public string Value { get; set; }
+        }
+
+        [Fact]
+        public void DeepClone_Decimal_ReturnsValue()
+        {
+            decimal val = 10.5m;
+            var clone = val.DeepClone();
+            Assert.Equal(10.5m, clone);
+        }
+
+        [Fact]
+        public void DeepClone_DateTime_ReturnsValue()
+        {
+            DateTime val = new DateTime(2023, 10, 27);
+            var clone = val.DeepClone();
+            Assert.Equal(val, clone);
+        }
+
+        [Fact]
+        public void DeepClone_Enum_ReturnsValue()
+        {
+            TestEnum val = TestEnum.Value2;
+            var clone = val.DeepClone();
+            Assert.Equal(TestEnum.Value2, clone);
+        }
+
+        [Fact]
+        public void DeepClone_PrimitiveOptimization_ReturnsSameInstance()
+        {
+            // For strings, it should return the exact same reference
+            string str = "test string";
+            object clonedStr = ((object)str).DeepClone();
+            Assert.Same(str, clonedStr);
+
+            // For boxed primitives, it should return the exact same reference because of the optimization
+            object boxedInt = 42;
+            object clonedInt = boxedInt.DeepClone();
+            Assert.Same(boxedInt, clonedInt);
+
+            object boxedDecimal = 10.5m;
+            object clonedDecimal = boxedDecimal.DeepClone();
+            Assert.Same(boxedDecimal, clonedDecimal);
+
+            object boxedDateTime = new DateTime(2023, 1, 1);
+            object clonedDateTime = boxedDateTime.DeepClone();
+            Assert.Same(boxedDateTime, clonedDateTime);
+
+            object boxedEnum = TestEnum.Value1;
+            object clonedEnum = boxedEnum.DeepClone();
+            Assert.Same(boxedEnum, clonedEnum);
         }
 
         [Fact]
