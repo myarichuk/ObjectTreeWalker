@@ -8,6 +8,9 @@ namespace ObjectTreeWalker;
 /// </summary>
 internal readonly struct ObjectMemberInfo
 {
+    /// <summary>
+    /// Gets the parent ObjectMemberInfo
+    /// </summary>
     public Ref<ObjectMemberInfo>? Parent { get; }
 
     /// <summary>
@@ -41,6 +44,7 @@ internal readonly struct ObjectMemberInfo
     /// <param name="name">member name</param>
     /// <param name="memberType">member type (property/field)</param>
     /// <param name="instance">instance of the object the member belongs</param>
+    /// <param name="parent">the parent ObjectMemberInfo reference</param>
     /// <param name="type">Type of the property/field</param>
     /// <param name="propertyPath">property and it's parents in-order</param>
     /// <exception cref="ArgumentNullException">any of constructor parameters is null</exception>

@@ -255,46 +255,15 @@ namespace ObjectTreeWalker
 
                     if (nodeInstance is IEnumerable instanceAsEnumerable and not string)
                     {
-                        var index = 0;
-                        foreach (var arrayItem in instanceAsEnumerable)
-                        {
-                            if (arrayItem != null) // just in case
-                            {
-                                var itemName = PropertyNameWithIndex(current, index);
-                                var itemMemberInfo = (MemberInfo)arrayItem.GetType();
-
-                                var propertyPath =
-                                    propertyPathPrefix.Concat(
-                                        current.IterationItem.PropertyPath.SkipLast(1)
-                                            .Append(new PropertyPathItem(itemName, index)));
-
-                                if (((Type)itemMemberInfo).IsPrimitive)
-                                {
-                                    traversalQueue.Enqueue(
-                                        (new(
-                                            new ObjectMemberInfo(
-                                                itemName,
-                                                MemberType.CollectionItem,
-                                                arrayItem,
-                                                new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
-                                                arrayItem.GetType(),
-                                                propertyPath),
-                                            objectAccessor),
-                                            new ObjectGraphNode(itemMemberInfo, current.Node)));
-                                }
-                                else
-                                {
-                                    Traverse(
-                                        arrayItem,
-                                        visitorFunc,
-                                        in iterationContext,
-                                        predicate,
-                                        propertyPath);
-                                }
-                            }
-
-                            index++;
-                        }
+                        ProcessEnumerable(
+                            current,
+                            instanceAsEnumerable,
+                            propertyPathPrefix,
+                            objectAccessor,
+                            traversalQueue,
+                            visitorFunc,
+                            in iterationContext,
+                            predicate);
 
                         continue;
                     }
@@ -307,19 +276,7 @@ namespace ObjectTreeWalker
                     }
                     else
                     {
-                        foreach (var child in current.Node.Children)
-                        {
-                            traversalQueue.Enqueue(
-                                (new(
-                                    new ObjectMemberInfo(
-                                        child.Name,
-                                        child.MemberType,
-                                        nodeInstance,
-                                        new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
-                                        child.MemberInfo.GetUnderlyingType()!,
-                                        propertyPathPrefix.Concat(current.IterationItem.PropertyPath.Append(new PropertyPathItem(child.Name)))),
-                                    objectAccessor), child));
-                        }
+                        ProcessChildren(current, nodeInstance, propertyPathPrefix, objectAccessor, traversalQueue);
                     }
                 }
             }
@@ -329,10 +286,81 @@ namespace ObjectTreeWalker
             }
 
             return context;
-
-            string PropertyNameWithIndex((MemberAccessor IterationItem, ObjectGraphNode Node) current, int index) =>
-                $"{current.Node.Name}[{index}]";
         }
 
+        private void ProcessEnumerable<TContext>(
+            (MemberAccessor IterationItem, ObjectGraphNode Node) current,
+            IEnumerable instanceAsEnumerable,
+            IEnumerable<PropertyPathItem> propertyPathPrefix,
+            ObjectAccessor objectAccessor,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            in TContext iterationContext,
+            PredicateWithContextFunc<TContext>? predicate)
+            where TContext : new()
+        {
+            var index = 0;
+            foreach (var arrayItem in instanceAsEnumerable)
+            {
+                if (arrayItem != null) // just in case
+                {
+                    var itemName = $"{current.Node.Name}[{index}]";
+                    var itemMemberInfo = (MemberInfo)arrayItem.GetType();
+
+                    var propertyPath =
+                        propertyPathPrefix.Concat(
+                            current.IterationItem.PropertyPath.SkipLast(1)
+                                .Append(new PropertyPathItem(itemName, index)));
+
+                    if (((Type)itemMemberInfo).IsPrimitive)
+                    {
+                        traversalQueue.Enqueue(
+                            (new(
+                                new ObjectMemberInfo(
+                                    itemName,
+                                    MemberType.CollectionItem,
+                                    arrayItem,
+                                    new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
+                                    arrayItem.GetType(),
+                                    propertyPath),
+                                objectAccessor),
+                                new ObjectGraphNode(itemMemberInfo, current.Node)));
+                    }
+                    else
+                    {
+                        Traverse(
+                            arrayItem,
+                            visitorFunc,
+                            in iterationContext,
+                            predicate,
+                            propertyPath);
+                    }
+                }
+
+                index++;
+            }
+        }
+
+        private void ProcessChildren(
+            (MemberAccessor IterationItem, ObjectGraphNode Node) current,
+            object nodeInstance,
+            IEnumerable<PropertyPathItem> propertyPathPrefix,
+            ObjectAccessor objectAccessor,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue)
+        {
+            foreach (var child in current.Node.Children)
+            {
+                traversalQueue.Enqueue(
+                    (new(
+                        new ObjectMemberInfo(
+                            child.Name,
+                            child.MemberType,
+                            nodeInstance,
+                            new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
+                            child.MemberInfo.GetUnderlyingType()!,
+                            propertyPathPrefix.Concat(current.IterationItem.PropertyPath.Append(new PropertyPathItem(child.Name)))),
+                        objectAccessor), child));
+            }
+        }
     }
 }
