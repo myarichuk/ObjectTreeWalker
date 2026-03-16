@@ -10,12 +10,12 @@ internal record ObjectGraphNode
     /// <summary>
     /// Gets the name of the member (name of property/field)
     /// </summary>
-    public string Name => MemberInfo.Name;
+    public string Name { get; }
 
     /// <summary>
     /// Gets the type of the member
     /// </summary>
-    public Type Type => MemberInfo.GetUnderlyingType()!;
+    public Type Type { get; }
 
     /// <summary>
     /// Gets the reflection metadata of the member
@@ -56,6 +56,8 @@ internal record ObjectGraphNode
     public ObjectGraphNode(MemberInfo memberInfo, ObjectGraphNode? parent, IEnumerable<ObjectGraphNode>? children = null)
     {
         MemberInfo = memberInfo;
+        Name = memberInfo.Name;
+        Type = memberInfo.GetUnderlyingType()!;
         Parent = parent;
 
         if (children != null)
