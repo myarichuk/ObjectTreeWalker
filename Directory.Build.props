@@ -6,14 +6,17 @@
     <BaseIntermediateOutputPath>$(RepoRootPath)obj\$([MSBuild]::MakeRelative($(RepoRootPath), $(MSBuildProjectDirectory)))\</BaseIntermediateOutputPath>
     <BaseOutputPath Condition=" '$(BaseOutputPath)' == '' ">$(RepoRootPath)bin\$(MSBuildProjectName)\</BaseOutputPath>
     <PackageOutputPath>$(RepoRootPath)bin\Packages\$(Configuration)\</PackageOutputPath>
-    <LangVersion>10.0</LangVersion>
+    <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
+    <EnablePreviewFeatures>true</EnablePreviewFeatures>
+  </PropertyGroup>
 
+  <PropertyGroup>
     <!-- https://github.com/dotnet/msbuild/blob/main/documentation/ProjectReference-Protocol.md#setplatform-negotiation -->
     <EnableDynamicPlatformResolution>true</EnableDynamicPlatformResolution>
 
