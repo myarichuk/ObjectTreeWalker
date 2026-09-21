@@ -1,7 +1,5 @@
 using System.Collections;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Sigil;
@@ -17,6 +15,7 @@ namespace ObjectTreeWalker;
 internal class ObjectAccessor
 {
     private static readonly ConcurrentDictionary<Type, MethodInfo> GetDefaultCache = new();
+    private static readonly ConcurrentDictionary<Type, ObjectAccessor> AccessorCache = new();
     private readonly Type _objectType;
     private readonly bool _iUnsupportedAccessor;
     private readonly Dictionary<string, Func<object, object>> _getPropertyMethods = new();
@@ -88,6 +87,19 @@ internal class ObjectAccessor
     }
 
     /// <summary>
+    /// Gets a cached <see cref="ObjectAccessor"/> instance for the given type, creating it if needed.
+    /// </summary>
+    /// <param name="objectType">type of the object to prepare access of it's properties</param>
+    /// <returns>a shared, type-keyed <see cref="ObjectAccessor"/> instance</returns>
+    /// <remarks>
+    /// Constructing an <see cref="ObjectAccessor"/> reflects over every member of the type and IL-emits
+    /// accessor delegates for each one, so this cache must be used instead of <c>new ObjectAccessor(...)</c>
+    /// everywhere the same type may be accessed more than once (e.g. cloning many instances of the same type).
+    /// </remarks>
+    public static ObjectAccessor GetOrCreate(Type objectType) =>
+        AccessorCache.GetOrAdd(objectType, static t => new ObjectAccessor(t));
+
+    /// <summary>
     /// Try fetching the field or a property from the object
     /// </summary>
     /// <param name="source">object to work on</param>
@@ -95,7 +107,6 @@ internal class ObjectAccessor
     /// <param name="value">value fetched or a default value</param>
     /// <returns>true if fetching successful, false otherwise</returns>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> or <paramref name="memberName"/> is <see langword="null"/></exception>
-    /// <exception cref="InvalidOperationException">Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.</exception>
     public bool TryGetValue(object source, string memberName, out object? value)
     {
         ValidateThrowIfNeeded(source, memberName);
@@ -115,31 +126,6 @@ internal class ObjectAccessor
 
         return _getFieldMethods.TryGetValue(memberName, out var getterFieldFunc) &&
                TryExecuteGetter(source, out value, getterFieldFunc);
-    }
-
-    /// <summary>
-    /// Try fetching the item from the collection using index
-    /// </summary>
-    /// <param name="source">IEnumerable collection</param>
-    /// <param name="index">index of the item</param>
-    /// <param name="value">value fetched or a default value</param>
-    /// <returns>true if fetching successful, false otherwise</returns>
-    public bool TryGetValue(IEnumerable source, uint index, out object? value)
-    {
-        value = default;
-
-        var currentIndex = 0;
-
-        foreach (var item in source)
-        {
-            if (index == currentIndex++)
-            {
-                value = item;
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -199,12 +185,6 @@ internal class ObjectAccessor
 
     private static bool TryExecuteGetter(object source, out object? value, Func<object, object> getterFieldFunc)
     {
-        if (getterFieldFunc == null)
-        {
-            throw new InvalidOperationException(
-                "Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.");
-        }
-
         // ReSharper disable once EventExceptionNotDocumented
         value = getterFieldFunc(source);
         return true;
@@ -212,12 +192,6 @@ internal class ObjectAccessor
 
     private static void ExecuteSetter(object objectInstance, object? newValue, Action<object, object> setter)
     {
-        if (setter == null)
-        {
-            throw new InvalidOperationException(
-                "Internally cached delegate is null but it shouldn't be. This is not supposed to happen and should be reported.");
-        }
-
         // ReSharper disable once EventExceptionNotDocumented
         try
         {

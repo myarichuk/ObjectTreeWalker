@@ -1,8 +1,4 @@
-using System;
 using System.Collections;
-using System.Collections.Concurrent;
-using System.Reflection;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.ObjectPool;
 
 // ReSharper disable ComplexConditionExpression
@@ -43,9 +39,7 @@ namespace ObjectTreeWalker
     /// </summary>
     public class ObjectMemberIterator
     {
-        private static readonly ConcurrentDictionary<Type, ObjectAccessor> ObjectAccessorCache = new();
         private static readonly object EmptyContext = new();
-        private static ObjectEnumerator.Settings? _enumeratorSettings;
 
         private static readonly ObjectPool<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>> TraversalQueuePool =
             new DefaultObjectPoolProvider().Create<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>>();
@@ -56,33 +50,8 @@ namespace ObjectTreeWalker
         /// Initializes a new instance of the <see cref="ObjectMemberIterator"/> class.
         /// </summary>
         /// <param name="ignoreCompilerGenerated">ignore compiler generated fields (like auto properties)</param>
-        public ObjectMemberIterator(bool ignoreCompilerGenerated = true)
-        {
-            if (_enumeratorSettings == null)
-            {
-                _enumeratorSettings = new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated);
-                _objectEnumerator = new(_enumeratorSettings);
-                return;
-            }
-
-            var newSettings = new ObjectEnumerator.Settings
-            {
-                IgnoreCompilerGenerated = ignoreCompilerGenerated,
-            };
-
-            if (_enumeratorSettings != newSettings)
-            {
-                _enumeratorSettings = newSettings;
-                ObjectAccessorCache.Clear();
-                ObjectEnumerator.ClearCache();
-            }
-
-            _objectEnumerator = new(_enumeratorSettings);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ObjectAccessor GetCachedObjectAccessor(Type type) =>
-            ObjectAccessorCache.GetOrAdd(type, t => new ObjectAccessor(t));
+        public ObjectMemberIterator(bool ignoreCompilerGenerated = true) =>
+            _objectEnumerator = new ObjectEnumerator(new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated));
 
         /// <summary>
         /// Traverse over object members and possibly apply action to mutate the data
@@ -99,47 +68,39 @@ namespace ObjectTreeWalker
                 EmptyContext,
                 (in object _, in MemberAccessor memberAccessor) => predicate?.Invoke(memberAccessor) ?? true);
 
+        /// <summary>
+        /// Enqueues the direct members ("roots") of <paramref name="objectGraph"/> for traversal.
+        /// </summary>
+        /// <param name="obj">the object instance whose members are being enqueued</param>
+        /// <param name="objectGraph">the member graph of <paramref name="obj"/>'s type</param>
+        /// <param name="parent">the parent member (if any) that <paramref name="obj"/> was reached through; its property path is used as a prefix</param>
+        /// <param name="traversalQueue">the queue to enqueue members into</param>
         private static void EnqueueObjectRoots(
             object obj,
             ObjectGraph objectGraph,
+            Ref<ObjectMemberInfo>? parent,
             Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue)
         {
-            var rootObjectAccessor = GetCachedObjectAccessor(objectGraph.Type);
+            var rootObjectAccessor = ObjectAccessor.GetOrCreate(objectGraph.Type);
+            var parentPath = parent?.Value.PropertyPath;
 
             foreach (var root in objectGraph.Roots)
             {
+                var pathItem = new PropertyPathItem(root.Name);
+                PropertyPathItem[] propertyPath =
+                    parentPath == null
+                        ? [pathItem]
+                        : [.. parentPath, pathItem];
+
                 traversalQueue.Enqueue(
                     (new(
                         new ObjectMemberInfo(
                             root.Name,
                             root.MemberType,
                             obj,
-                            null,
+                            parent,
                             root.MemberInfo.GetUnderlyingType()!,
-                            new[] { new PropertyPathItem(root.Name) }),
-                        rootObjectAccessor), root));
-            }
-        }
-
-        private static void EnqueueObjectRoots(
-            object obj,
-            ObjectGraph objectGraph,
-            in ObjectMemberInfo rawData,
-            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue)
-        {
-            var rootObjectAccessor = GetCachedObjectAccessor(objectGraph.Type);
-
-            foreach (var root in objectGraph.Roots)
-            {
-                traversalQueue.Enqueue(
-                    (new(
-                        new ObjectMemberInfo(
-                            root.Name,
-                            root.MemberType,
-                            obj,
-                            new Ref<ObjectMemberInfo>(rawData),
-                            root.MemberInfo.GetUnderlyingType()!,
-                            new[] { new PropertyPathItem(root.Name) }),
+                            propertyPath),
                         rootObjectAccessor), root));
             }
         }
@@ -185,7 +146,7 @@ namespace ObjectTreeWalker
             VisitorWithContextFunc<TContext> visitorFunc,
             in TContext iterationContext,
             PredicateWithContextFunc<TContext>? predicate,
-            IEnumerable<PropertyPathItem> propertyPathPrefix)
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix)
             where TContext : new()
         {
             if (obj == null)
@@ -206,7 +167,7 @@ namespace ObjectTreeWalker
             var traversalQueue = TraversalQueuePool.Get();
             try
             {
-                EnqueueObjectRoots(obj, objectGraph, traversalQueue);
+                EnqueueObjectRoots(obj, objectGraph, null, traversalQueue);
 
 #if NET8_0_OR_GREATER
                 while (traversalQueue.TryDequeue(out var current))
@@ -221,8 +182,6 @@ namespace ObjectTreeWalker
                         continue;
                     }
 
-                    var objectAccessor = GetCachedObjectAccessor(current.Node.Type);
-
                     // nodeInstance null means no iteration is necessary
                     if (!current.IterationItem.TryGetValue(out var nodeInstance) || nodeInstance == null)
                     {
@@ -230,31 +189,17 @@ namespace ObjectTreeWalker
                         continue;
                     }
 
-                    /*
-                       * Handle the edge-case where our member value is an upcast version of the object ->
-                       * in such a case we need to dynamically fetch the type with GetType() as the object enumerator
-                       * would enumerate the members of a base object at this point.
-                       * In order to conserve the caching of existing object enumerator, we must not allow it to rely on reflection like this
-                    */
-                    if (current.Node.Type == typeof(object) ||
-                        current.Node.Type == typeof(ValueType))
+                    var actualType = nodeInstance.GetType();
+
+                    // a bare boxed object/ValueType with no more specific runtime type - nothing to visit
+                    if (actualType == typeof(object) || actualType == typeof(ValueType))
                     {
-                        var actualType = nodeInstance.GetType(); // we checked for null already
-
-                        // got nothing to do!
-                        if (actualType == typeof(object) ||
-                            actualType == typeof(ValueType))
-                        {
-                            continue;
-                        }
-
-                        var actualObjectGraph = _objectEnumerator.Enumerate(actualType);
-                        EnqueueObjectRoots(nodeInstance!, actualObjectGraph, current.IterationItem.RawInfo, traversalQueue);
                         continue;
                     }
 
                     if (nodeInstance is IEnumerable instanceAsEnumerable and not string)
                     {
+                        var objectAccessor = ObjectAccessor.GetOrCreate(current.Node.Type);
                         ProcessEnumerable(
                             current,
                             instanceAsEnumerable,
@@ -268,15 +213,22 @@ namespace ObjectTreeWalker
                         continue;
                     }
 
-                    // we are only interested in iterating over the "data" vertices
-                    // otherwise, we would get "foo(obj)" and then all foo's properties
-                    if (current.Node.Children.Count == 0)
+                    /*
+                       * Always resolve members from the actual runtime type rather than the member's declared type.
+                       * This both handles upcast members (declared as object/ValueType) and lets traversal recurse
+                       * to arbitrary depth instead of stopping after the first level - ObjectEnumerator.Enumerate
+                       * is cached per-type, so re-resolving here on every level is cheap.
+                    */
+                    var childGraph = _objectEnumerator.Enumerate(actualType);
+
+                    // no traversable members (primitive/string/decimal/etc.) - this is a "data" leaf
+                    if (childGraph.Roots.Count == 0)
                     {
                         visitorFunc(ref context, current.IterationItem);
                     }
                     else
                     {
-                        ProcessChildren(current, nodeInstance, propertyPathPrefix, objectAccessor, traversalQueue);
+                        EnqueueObjectRoots(nodeInstance, childGraph, new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo), traversalQueue);
                     }
                 }
             }
@@ -291,7 +243,7 @@ namespace ObjectTreeWalker
         private void ProcessEnumerable<TContext>(
             (MemberAccessor IterationItem, ObjectGraphNode Node) current,
             IEnumerable instanceAsEnumerable,
-            IEnumerable<PropertyPathItem> propertyPathPrefix,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
             ObjectAccessor objectAccessor,
             Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
             VisitorWithContextFunc<TContext> visitorFunc,
@@ -300,20 +252,48 @@ namespace ObjectTreeWalker
             where TContext : new()
         {
             var index = 0;
+
+            // PropertyPath is [..parentPath, ownPathItem]; the per-item path replaces the collection
+            // member's own trailing entry with the indexed item entry, so only the first PropertyPath.Count - 1
+            // entries are kept from it.
+            var basePath = current.IterationItem.PropertyPath;
+            var baseCount = basePath.Count - 1;
+            var prefixCount = propertyPathPrefix.Count;
+
+            // Same-typed items (the overwhelmingly common case - a homogeneous List<int>, int[], etc.) can
+            // share one ObjectGraphNode instead of allocating a new node (and its backing Children list) per item.
+            Dictionary<Type, ObjectGraphNode>? itemGraphNodeCache = null;
+
             foreach (var arrayItem in instanceAsEnumerable)
             {
                 if (arrayItem != null) // just in case
                 {
                     var itemName = $"{current.Node.Name}[{index}]";
-                    var itemMemberInfo = (MemberInfo)arrayItem.GetType();
+                    var itemType = arrayItem.GetType();
 
-                    var propertyPath =
-                        propertyPathPrefix.Concat(
-                            current.IterationItem.PropertyPath.SkipLast(1)
-                                .Append(new PropertyPathItem(itemName, index)));
-
-                    if (((Type)itemMemberInfo).IsPrimitive)
+                    var propertyPath = new PropertyPathItem[prefixCount + baseCount + 1];
+                    var pos = 0;
+                    for (var i = 0; i < prefixCount; i++)
                     {
+                        propertyPath[pos++] = propertyPathPrefix[i];
+                    }
+
+                    for (var i = 0; i < baseCount; i++)
+                    {
+                        propertyPath[pos++] = basePath[i];
+                    }
+
+                    propertyPath[pos] = new PropertyPathItem(itemName, index);
+
+                    if (itemType.IsPrimitive)
+                    {
+                        itemGraphNodeCache ??= new Dictionary<Type, ObjectGraphNode>();
+                        if (!itemGraphNodeCache.TryGetValue(itemType, out var itemGraphNode))
+                        {
+                            itemGraphNode = new ObjectGraphNode(itemType, current.Node);
+                            itemGraphNodeCache[itemType] = itemGraphNode;
+                        }
+
                         traversalQueue.Enqueue(
                             (new(
                                 new ObjectMemberInfo(
@@ -321,10 +301,10 @@ namespace ObjectTreeWalker
                                     MemberType.CollectionItem,
                                     arrayItem,
                                     new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
-                                    arrayItem.GetType(),
+                                    itemType,
                                     propertyPath),
                                 objectAccessor),
-                                new ObjectGraphNode(itemMemberInfo, current.Node)));
+                                itemGraphNode));
                     }
                     else
                     {
@@ -338,28 +318,6 @@ namespace ObjectTreeWalker
                 }
 
                 index++;
-            }
-        }
-
-        private void ProcessChildren(
-            (MemberAccessor IterationItem, ObjectGraphNode Node) current,
-            object nodeInstance,
-            IEnumerable<PropertyPathItem> propertyPathPrefix,
-            ObjectAccessor objectAccessor,
-            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue)
-        {
-            foreach (var child in current.Node.Children)
-            {
-                traversalQueue.Enqueue(
-                    (new(
-                        new ObjectMemberInfo(
-                            child.Name,
-                            child.MemberType,
-                            nodeInstance,
-                            new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
-                            child.MemberInfo.GetUnderlyingType()!,
-                            propertyPathPrefix.Concat(current.IterationItem.PropertyPath.Append(new PropertyPathItem(child.Name)))),
-                        objectAccessor), child));
             }
         }
     }

@@ -41,7 +41,15 @@ namespace ObjectTreeWalker.Tests
         public class ClassWithCircularRef
         {
             public ClassWithCircularRef? Self { get; set; }
+            public List<ClassWithCircularRef>? SelfList { get; set; }
             public string Value { get; set; }
+        }
+
+        public class ComplexObjectWithCollections
+        {
+            public int Id { get; set; }
+            public List<int>? Numbers { get; set; }
+            public Dictionary<string, SimpleClass>? Items { get; set; }
         }
 
         [Fact]
@@ -207,6 +215,101 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal(2, clone[0, 1]);
             Assert.Equal(3, clone[1, 0]);
             Assert.Equal(4, clone[1, 1]);
+        }
+
+
+        [Fact]
+        public void DeepClone_ListOfPrimitives_ReturnsClone()
+        {
+            var original = new List<int> { 1, 2, 3, 4, 5 };
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.Equal(original, clone);
+        }
+
+        [Fact]
+        public void DeepClone_ListOfObjects_ReturnsClone()
+        {
+            var original = new List<SimpleClass>
+            {
+                new SimpleClass { Id = 1, Name = "A" },
+                new SimpleClass { Id = 2, Name = "B" },
+            };
+
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.Equal(original.Count, clone.Count);
+            Assert.NotSame(original[0], clone[0]);
+            Assert.Equal(original[0].Id, clone[0].Id);
+            Assert.Equal(original[0].Name, clone[0].Name);
+        }
+
+        [Fact]
+        public void DeepClone_Dictionary_ReturnsClone()
+        {
+            var original = new Dictionary<string, SimpleClass>
+            {
+                { "key1", new SimpleClass { Id = 1, Name = "A" } },
+                { "key2", new SimpleClass { Id = 2, Name = "B" } },
+            };
+
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.Equal(original.Count, clone.Count);
+            Assert.NotSame(original["key1"], clone["key1"]);
+            Assert.Equal(original["key1"].Id, clone["key1"].Id);
+            Assert.Equal(original["key2"].Name, clone["key2"].Name);
+        }
+
+        [Fact]
+        public void DeepClone_HashSet_ReturnsClone()
+        {
+            var original = new HashSet<int> { 1, 2, 3 };
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.Equal(original, clone);
+        }
+
+        [Fact]
+        public void DeepClone_ClassWithListField_ReturnsClone()
+        {
+            var original = new ComplexObjectWithCollections
+            {
+                Id = 1,
+                Numbers = new List<int> { 1, 2, 3 },
+                Items = new Dictionary<string, SimpleClass>
+                {
+                    { "a", new SimpleClass { Id = 10, Name = "Ten" } },
+                },
+            };
+
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.NotSame(original.Numbers, clone.Numbers);
+            Assert.Equal(original.Numbers, clone.Numbers);
+
+            Assert.NotSame(original.Items, clone.Items);
+            Assert.NotSame(original.Items["a"], clone.Items["a"]);
+            Assert.Equal(original.Items["a"].Id, clone.Items["a"].Id);
+        }
+
+        [Fact]
+        public void DeepClone_CircularReferenceThroughList_ReturnsCloneWithoutStackOverflow()
+        {
+            var original = new ClassWithCircularRef { Value = "Test" };
+            var list = new List<ClassWithCircularRef> { original };
+            original.SelfList = list;
+
+            var clone = original.DeepClone();
+
+            Assert.NotSame(original, clone);
+            Assert.NotSame(original.SelfList, clone.SelfList);
+            Assert.Same(clone, clone.SelfList![0]);
         }
     }
 }

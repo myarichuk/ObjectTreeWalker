@@ -24,7 +24,7 @@ namespace ObjectTreeWalker
             public bool IgnoreCompilerGenerated { get; set; } = IgnoreCompilerGenerated;
         }
 
-        private static readonly ConcurrentDictionary<Type, ObjectGraph> ObjectGraphCache = new();
+        private static readonly ConcurrentDictionary<(Type Type, bool IgnoreCompilerGenerated), ObjectGraph> ObjectGraphCache = new();
         private readonly Settings _settings;
 
         /// <summary>
@@ -44,6 +44,7 @@ namespace ObjectTreeWalker
         /// <summary>
         /// Clears internal cache shared by all <see cref="ObjectEnumerator"/> instances
         /// </summary>
+        /// <remarks>The cache is keyed by both type and settings, so this is only needed to reclaim memory, never for correctness.</remarks>
         public static void ClearCache() => ObjectGraphCache.Clear();
 
         /// <summary>
@@ -64,10 +65,10 @@ namespace ObjectTreeWalker
         /// <returns>object graph</returns>
         /// <exception cref="OverflowException">The object graph cache contains too many elements.</exception>
         public ObjectGraph Enumerate(Type type) =>
-            ObjectGraphCache.GetOrAdd(type, t =>
+            ObjectGraphCache.GetOrAdd((type, _settings.IgnoreCompilerGenerated), key =>
             {
                 var roots =
-                    EnumerateChildMembers(t)
+                    EnumerateChildMembers(key.Type)
                         .Select(memberData =>
                             EnumerateMember(
                                 null,
@@ -77,7 +78,7 @@ namespace ObjectTreeWalker
                                     memberData.CanSet,
                                     memberData.MemberType)));
 
-                return new ObjectGraph(t, roots);
+                return new ObjectGraph(key.Type, roots);
             });
 
         private ObjectGraphNode EnumerateMember(ObjectGraphNode? parent, EnumerationItem enumerationItem)
@@ -95,7 +96,7 @@ namespace ObjectTreeWalker
                     {
                         CanGet = memberData.CanGet,
                         CanSet = memberData.CanSet,
-                        MemberType = enumerationItem.MemberType,
+                        MemberType = memberData.MemberType,
                     });
 
             ogn.Children.AddRange(children);

@@ -1,8 +1,6 @@
 // Copyright (c) Michael Yarichuk. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System.Collections;
-
 namespace ObjectTreeWalker;
 
 /// <summary>
@@ -71,7 +69,7 @@ public readonly struct MemberAccessor
     /// <summary>
     /// Gets the list of property name and it's parents in-order
     /// </summary>
-    public IEnumerable<PropertyPathItem> PropertyPath => _memberInfo.PropertyPath;
+    public IReadOnlyList<PropertyPathItem> PropertyPath => _memberInfo.PropertyPath;
 
     /// <summary>
     /// Accesses and sets member value
@@ -101,7 +99,7 @@ public readonly struct MemberAccessor
                 _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
 
                 var objectType = parentOfParentRef.Value.Instance.GetType();
-                var parentOfParentRefAccessor = new ObjectAccessor(objectType);
+                var parentOfParentRefAccessor = ObjectAccessor.GetOrCreate(objectType);
 
                 if (!parentOfParentRefAccessor.TryGetValue(
                     parentOfParentRef.Value.Instance,
@@ -112,7 +110,7 @@ public readonly struct MemberAccessor
                         "Failed to set embedded struct value, this is not supposed to happen and is likely a bug.");
                 }
 
-                var properParentObjectAccessor = new ObjectAccessor(properParentInstance!.GetType());
+                var properParentObjectAccessor = ObjectAccessor.GetOrCreate(properParentInstance!.GetType());
 
                 properParentObjectAccessor.TrySetValue(
                     properParentInstance,
@@ -131,7 +129,7 @@ public readonly struct MemberAccessor
                 }
 
                 var parentInstance = _memberInfo.Parent.Value.Instance;
-                var properParentObjectAccessor = new ObjectAccessor(parentInstance.GetType());
+                var properParentObjectAccessor = ObjectAccessor.GetOrCreate(parentInstance.GetType());
 
                 properParentObjectAccessor.TrySetValue(parentInstance, parentPathItem.Name, _memberInfo.Instance);
             }
