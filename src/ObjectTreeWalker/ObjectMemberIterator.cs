@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.ObjectPool;
 
 // ReSharper disable ComplexConditionExpression
@@ -37,21 +38,36 @@ namespace ObjectTreeWalker
     /// <summary>
     /// A class that allows recursive iteration over object members (BFS traversal)
     /// </summary>
+    /// <remarks>
+    /// The traversal tracks already-expanded reference instances, so object graphs with
+    /// circular references (or shared references) terminate. A member whose value aliases
+    /// an already-expanded instance is still reported to the visitor once, but is not
+    /// expanded again.
+    /// </remarks>
     public class ObjectMemberIterator
     {
+        // pooled traversal queues wider than this are dropped instead of returned,
+        // so one huge traversal does not pin that capacity for the process lifetime
+        private const int MaxPooledQueueCapacity = 4096;
+
         private static readonly object EmptyContext = new();
 
         private static readonly ObjectPool<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>> TraversalQueuePool =
             new DefaultObjectPoolProvider().Create<Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)>>();
 
         private readonly ObjectEnumerator _objectEnumerator;
+        private readonly bool _skipThrowingMembers;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ObjectMemberIterator"/> class.
         /// </summary>
         /// <param name="ignoreCompilerGenerated">ignore compiler generated fields (like auto properties)</param>
-        public ObjectMemberIterator(bool ignoreCompilerGenerated = true) =>
-            _objectEnumerator = new ObjectEnumerator(new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated));
+        /// <param name="skipThrowingMembers">when true, members whose predicate evaluation or value retrieval throws are skipped instead of aborting the whole traversal</param>
+        public ObjectMemberIterator(bool ignoreCompilerGenerated = true, bool skipThrowingMembers = false)
+        {
+            _skipThrowingMembers = skipThrowingMembers;
+            _objectEnumerator = new ObjectEnumerator(new ObjectEnumerator.Settings(IgnoreCompilerGenerated: ignoreCompilerGenerated, SkipKeyValuePairFields: true));
+        }
 
         /// <summary>
         /// Traverse over object members and possibly apply action to mutate the data
@@ -138,15 +154,6 @@ namespace ObjectTreeWalker
             VisitorWithContextFunc<TContext> visitorFunc,
             in TContext iterationContext,
             PredicateWithContextFunc<TContext>? predicate = null)
-            where TContext : new() =>
-            Traverse(obj, visitorFunc, in iterationContext, predicate, []);
-
-        private TContext Traverse<TContext>(
-            object obj,
-            VisitorWithContextFunc<TContext> visitorFunc,
-            in TContext iterationContext,
-            PredicateWithContextFunc<TContext>? predicate,
-            IReadOnlyList<PropertyPathItem> propertyPathPrefix)
             where TContext : new()
         {
             if (obj == null)
@@ -159,85 +166,180 @@ namespace ObjectTreeWalker
                 throw new ArgumentNullException(nameof(visitorFunc));
             }
 
-            var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
-            var context = iterationContext ?? new TContext();
+            var context = iterationContext;
+            var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            if (!obj.GetType().IsValueType)
+            {
+                visited.Add(obj);
+            }
 
+            TraverseCore(obj, visitorFunc, ref context, predicate, [], visited);
+            return context;
+        }
+
+        private void TraverseCore<TContext>(
+            object obj,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext>? predicate,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            HashSet<object> visited)
+            where TContext : new()
+        {
             predicate ??= (in TContext _, in MemberAccessor _) => true;
 
             var traversalQueue = TraversalQueuePool.Get();
+            var peakQueueSize = 0;
             try
             {
-                EnqueueObjectRoots(obj, objectGraph, null, traversalQueue);
+                if (obj is IEnumerable rootEnumerable && obj is not string)
+                {
+                    // a root collection has no member of its own: expand straight to its items
+                    var rootAccessor = ObjectAccessor.GetOrCreate(obj.GetType());
+                    if (obj is IDictionary rootDictionary)
+                    {
+                        ProcessDictionaryItems(
+                            string.Empty, [], 0, propertyPathPrefix,
+                            null, null, rootAccessor, rootDictionary,
+                            traversalQueue, visitorFunc, ref context, predicate, visited);
+                    }
+                    else
+                    {
+                        ProcessEnumerableItems(
+                            string.Empty, [], 0, propertyPathPrefix,
+                            null, null, rootAccessor, rootEnumerable,
+                            traversalQueue, visitorFunc, ref context, predicate, visited);
+                    }
+                }
+                else
+                {
+                    var objectGraph = _objectEnumerator.Enumerate(obj.GetType());
+                    EnqueueObjectRoots(obj, objectGraph, null, traversalQueue);
+                }
 
+                peakQueueSize = DrainTraversalQueue(traversalQueue, visitorFunc, ref context, predicate, propertyPathPrefix, visited);
+            }
+            finally
+            {
+                // the queue must go back empty: a throwing visitor/getter would otherwise
+                // leave stale items behind that poison the next traversal reusing it.
+                // A huge traversal must not pin its capacity in the pool forever, so
+                // queues that grew past the threshold are dropped instead of returned.
+                if (peakQueueSize <= MaxPooledQueueCapacity)
+                {
+                    traversalQueue.Clear();
+                    TraversalQueuePool.Return(traversalQueue);
+                }
+            }
+        }
+
+        private int DrainTraversalQueue<TContext>(
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext> predicate,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            HashSet<object> visited)
+            where TContext : new()
+        {
+            var peakQueueSize = traversalQueue.Count;
 #if NET8_0_OR_GREATER
-                while (traversalQueue.TryDequeue(out var current))
-                {
+            while (traversalQueue.TryDequeue(out var current))
+            {
 #else
-                while (traversalQueue.Count > 0)
-                {
-                    var current = traversalQueue.Dequeue();
+            while (traversalQueue.Count > 0)
+            {
+                var current = traversalQueue.Dequeue();
 #endif
+                if (traversalQueue.Count > peakQueueSize)
+                {
+                    peakQueueSize = traversalQueue.Count;
+                }
+
+                object? nodeInstance;
+                try
+                {
                     if (!predicate(context, current.IterationItem))
                     {
                         continue;
                     }
 
                     // nodeInstance null means no iteration is necessary
-                    if (!current.IterationItem.TryGetValue(out var nodeInstance) || nodeInstance == null)
+                    if (!current.IterationItem.TryGetValue(out nodeInstance) || nodeInstance == null)
                     {
                         visitorFunc(ref context, current.IterationItem);
                         continue;
-                    }
-
-                    var actualType = nodeInstance.GetType();
-
-                    // a bare boxed object/ValueType with no more specific runtime type - nothing to visit
-                    if (actualType == typeof(object) || actualType == typeof(ValueType))
-                    {
-                        continue;
-                    }
-
-                    if (nodeInstance is IEnumerable instanceAsEnumerable and not string)
-                    {
-                        var objectAccessor = ObjectAccessor.GetOrCreate(current.Node.Type);
-                        ProcessEnumerable(
-                            current,
-                            instanceAsEnumerable,
-                            propertyPathPrefix,
-                            objectAccessor,
-                            traversalQueue,
-                            visitorFunc,
-                            in iterationContext,
-                            predicate);
-
-                        continue;
-                    }
-
-                    /*
-                       * Always resolve members from the actual runtime type rather than the member's declared type.
-                       * This both handles upcast members (declared as object/ValueType) and lets traversal recurse
-                       * to arbitrary depth instead of stopping after the first level - ObjectEnumerator.Enumerate
-                       * is cached per-type, so re-resolving here on every level is cheap.
-                    */
-                    var childGraph = _objectEnumerator.Enumerate(actualType);
-
-                    // no traversable members (primitive/string/decimal/etc.) - this is a "data" leaf
-                    if (childGraph.Roots.Count == 0)
-                    {
-                        visitorFunc(ref context, current.IterationItem);
-                    }
-                    else
-                    {
-                        EnqueueObjectRoots(nodeInstance, childGraph, new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo), traversalQueue);
                     }
                 }
-            }
-            finally
-            {
-                TraversalQueuePool.Return(traversalQueue);
+                catch (Exception) when (_skipThrowingMembers)
+                {
+                    // resilient mode: a throwing predicate or getter skips the member
+                    // instead of aborting the whole traversal
+                    continue;
+                }
+
+                var actualType = nodeInstance.GetType();
+
+                if (nodeInstance is IDictionary dictionary)
+                {
+                    var objectAccessor = ObjectAccessor.GetOrCreate(current.Node.Type);
+                    ProcessDictionary(
+                        current,
+                        dictionary,
+                        propertyPathPrefix,
+                        objectAccessor,
+                        traversalQueue,
+                        visitorFunc,
+                        ref context,
+                        predicate,
+                        visited);
+
+                    continue;
+                }
+
+                if (nodeInstance is IEnumerable instanceAsEnumerable and not string)
+                {
+                    var objectAccessor = ObjectAccessor.GetOrCreate(current.Node.Type);
+                    ProcessEnumerable(
+                        current,
+                        instanceAsEnumerable,
+                        propertyPathPrefix,
+                        objectAccessor,
+                        traversalQueue,
+                        visitorFunc,
+                        ref context,
+                        predicate,
+                        visited);
+
+                    continue;
+                }
+
+                /*
+                   * Always resolve members from the actual runtime type rather than the member's declared type.
+                   * This both handles upcast members (declared as object/ValueType) and lets traversal recurse
+                   * to arbitrary depth instead of stopping after the first level - ObjectEnumerator.Enumerate
+                   * is cached per-type, so re-resolving here on every level is cheap.
+                */
+                var childGraph = _objectEnumerator.Enumerate(actualType);
+
+                // no traversable members (primitive/string/decimal/etc.) - this is a "data" leaf
+                if (childGraph.Roots.Count == 0)
+                {
+                    visitorFunc(ref context, current.IterationItem);
+                }
+                else if (actualType.IsValueType || visited.Add(nodeInstance))
+                {
+                    EnqueueObjectRoots(nodeInstance, childGraph, new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo), traversalQueue);
+                }
+                else
+                {
+                    // alias of an already-expanded instance: report it, but do not expand again
+                    // (this is what makes traversal terminate on circular/shared references)
+                    visitorFunc(ref context, current.IterationItem);
+                }
             }
 
-            return context;
+            return peakQueueSize;
         }
 
         private void ProcessEnumerable<TContext>(
@@ -247,78 +349,263 @@ namespace ObjectTreeWalker
             ObjectAccessor objectAccessor,
             Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
             VisitorWithContextFunc<TContext> visitorFunc,
-            in TContext iterationContext,
-            PredicateWithContextFunc<TContext>? predicate)
+            ref TContext context,
+            PredicateWithContextFunc<TContext> predicate,
+            HashSet<object> visited)
             where TContext : new()
         {
-            var index = 0;
-
             // PropertyPath is [..parentPath, ownPathItem]; the per-item path replaces the collection
             // member's own trailing entry with the indexed item entry, so only the first PropertyPath.Count - 1
             // entries are kept from it.
             var basePath = current.IterationItem.PropertyPath;
-            var baseCount = basePath.Count - 1;
-            var prefixCount = propertyPathPrefix.Count;
+            ProcessEnumerableItems(
+                current.Node.Name, basePath, basePath.Count - 1, propertyPathPrefix,
+                new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo), current.Node,
+                objectAccessor, instanceAsEnumerable,
+                traversalQueue, visitorFunc, ref context, predicate, visited);
+        }
 
-            // Same-typed items (the overwhelmingly common case - a homogeneous List<int>, int[], etc.) can
-            // share one ObjectGraphNode instead of allocating a new node (and its backing Children list) per item.
-            Dictionary<Type, ObjectGraphNode>? itemGraphNodeCache = null;
+        private void ProcessDictionary<TContext>(
+            (MemberAccessor IterationItem, ObjectGraphNode Node) current,
+            IDictionary dictionary,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            ObjectAccessor objectAccessor,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext> predicate,
+            HashSet<object> visited)
+            where TContext : new()
+        {
+            var basePath = current.IterationItem.PropertyPath;
+            ProcessDictionaryItems(
+                current.Node.Name, basePath, basePath.Count - 1, propertyPathPrefix,
+                new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo), current.Node,
+                objectAccessor, dictionary,
+                traversalQueue, visitorFunc, ref context, predicate, visited);
+        }
 
-            foreach (var arrayItem in instanceAsEnumerable)
+        private void ProcessEnumerableItems<TContext>(
+            string namePrefix,
+            IReadOnlyList<PropertyPathItem> baseItems,
+            int baseCount,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            Ref<ObjectMemberInfo>? parentRef,
+            ObjectGraphNode? parentNode,
+            ObjectAccessor objectAccessor,
+            IEnumerable items,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext>? predicate,
+            HashSet<object> visited)
+            where TContext : new()
+        {
+            static void AdvanceRankIndices(int[]? rankIndices, int[]? rankLengths, int[]? rankLowerBounds)
             {
-                if (arrayItem != null) // just in case
+                if (rankIndices == null || rankLengths == null || rankLowerBounds == null)
                 {
-                    var itemName = $"{current.Node.Name}[{index}]";
-                    var itemType = arrayItem.GetType();
-
-                    var propertyPath = new PropertyPathItem[prefixCount + baseCount + 1];
-                    var pos = 0;
-                    for (var i = 0; i < prefixCount; i++)
-                    {
-                        propertyPath[pos++] = propertyPathPrefix[i];
-                    }
-
-                    for (var i = 0; i < baseCount; i++)
-                    {
-                        propertyPath[pos++] = basePath[i];
-                    }
-
-                    propertyPath[pos] = new PropertyPathItem(itemName, index);
-
-                    if (itemType.IsPrimitive)
-                    {
-                        itemGraphNodeCache ??= new Dictionary<Type, ObjectGraphNode>();
-                        if (!itemGraphNodeCache.TryGetValue(itemType, out var itemGraphNode))
-                        {
-                            itemGraphNode = new ObjectGraphNode(itemType, current.Node);
-                            itemGraphNodeCache[itemType] = itemGraphNode;
-                        }
-
-                        traversalQueue.Enqueue(
-                            (new(
-                                new ObjectMemberInfo(
-                                    itemName,
-                                    MemberType.CollectionItem,
-                                    arrayItem,
-                                    new Ref<ObjectMemberInfo>(current.IterationItem.RawInfo),
-                                    itemType,
-                                    propertyPath),
-                                objectAccessor),
-                                itemGraphNode));
-                    }
-                    else
-                    {
-                        Traverse(
-                            arrayItem,
-                            visitorFunc,
-                            in iterationContext,
-                            predicate,
-                            propertyPath);
-                    }
+                    return;
                 }
+
+                for (var dimension = rankIndices.Length - 1; dimension >= 0; dimension--)
+                {
+                    rankIndices[dimension]++;
+                    if (rankIndices[dimension] < rankLowerBounds[dimension] + rankLengths[dimension])
+                    {
+                        break;
+                    }
+
+                    rankIndices[dimension] = rankLowerBounds[dimension];
+                }
+            }
+
+            var index = 0;
+            Dictionary<Type, ObjectGraphNode>? leafNodeCache = null;
+
+            // multidimensional arrays enumerate in row-major order; track per-dimension indices
+            // so item paths map to rank indices (M[0,1]) instead of a flat position (M[3])
+            int[]? rankIndices = null;
+            int[]? rankLengths = null;
+            int[]? rankLowerBounds = null;
+            if (items is Array array && array.Rank > 1)
+            {
+                rankLengths = new int[array.Rank];
+                rankLowerBounds = new int[array.Rank];
+                rankIndices = new int[array.Rank];
+                for (var dimension = 0; dimension < array.Rank; dimension++)
+                {
+                    rankLengths[dimension] = array.GetLength(dimension);
+                    rankLowerBounds[dimension] = array.GetLowerBound(dimension);
+                    rankIndices[dimension] = rankLowerBounds[dimension];
+                }
+            }
+
+            foreach (var arrayItem in items)
+            {
+                string itemName;
+                if (rankIndices != null)
+                {
+                    var indices = string.Join(",", rankIndices);
+                    itemName = string.IsNullOrEmpty(namePrefix) ? $"[{indices}]" : $"{namePrefix}[{indices}]";
+                }
+                else
+                {
+                    itemName = string.IsNullOrEmpty(namePrefix) ? $"[{index}]" : $"{namePrefix}[{index}]";
+                }
+
+                EnqueueOrRecurseItem(
+                    arrayItem, itemName, index, isPartOfDictionary: false,
+                    propertyPathPrefix, baseItems, baseCount,
+                    parentRef, parentNode, objectAccessor,
+                    traversalQueue, visitorFunc, ref context, predicate, visited,
+                    ref leafNodeCache);
+
+                index++;
+                AdvanceRankIndices(rankIndices, rankLengths, rankLowerBounds);
+            }
+        }
+
+        private void ProcessDictionaryItems<TContext>(
+            string namePrefix,
+            IReadOnlyList<PropertyPathItem> baseItems,
+            int baseCount,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            Ref<ObjectMemberInfo>? parentRef,
+            ObjectGraphNode? parentNode,
+            ObjectAccessor objectAccessor,
+            IDictionary dictionary,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext>? predicate,
+            HashSet<object> visited)
+            where TContext : new()
+        {
+            var index = 0;
+            Dictionary<Type, ObjectGraphNode>? leafNodeCache = null;
+
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                var itemBase = string.IsNullOrEmpty(namePrefix) ? $"[{index}]" : $"{namePrefix}[{index}]";
+
+                EnqueueOrRecurseItem(
+                    entry.Key, $"{itemBase}.Key", index, isPartOfDictionary: true,
+                    propertyPathPrefix, baseItems, baseCount,
+                    parentRef, parentNode, objectAccessor,
+                    traversalQueue, visitorFunc, ref context, predicate, visited,
+                    ref leafNodeCache);
+
+                EnqueueOrRecurseItem(
+                    entry.Value, $"{itemBase}.Value", index, isPartOfDictionary: true,
+                    propertyPathPrefix, baseItems, baseCount,
+                    parentRef, parentNode, objectAccessor,
+                    traversalQueue, visitorFunc, ref context, predicate, visited,
+                    ref leafNodeCache);
 
                 index++;
             }
+        }
+
+        private void EnqueueOrRecurseItem<TContext>(
+            object? itemValue,
+            string itemName,
+            int itemIndex,
+            bool isPartOfDictionary,
+            IReadOnlyList<PropertyPathItem> propertyPathPrefix,
+            IReadOnlyList<PropertyPathItem> baseItems,
+            int baseCount,
+            Ref<ObjectMemberInfo>? parentRef,
+            ObjectGraphNode? parentNode,
+            ObjectAccessor objectAccessor,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            VisitorWithContextFunc<TContext> visitorFunc,
+            ref TContext context,
+            PredicateWithContextFunc<TContext>? predicate,
+            HashSet<object> visited,
+            ref Dictionary<Type, ObjectGraphNode>? leafNodeCache)
+            where TContext : new()
+        {
+            var prefixCount = propertyPathPrefix.Count;
+            var propertyPath = new PropertyPathItem[prefixCount + baseCount + 1];
+            var pos = 0;
+            for (var i = 0; i < prefixCount; i++)
+            {
+                propertyPath[pos++] = propertyPathPrefix[i];
+            }
+
+            for (var i = 0; i < baseCount; i++)
+            {
+                propertyPath[pos++] = baseItems[i];
+            }
+
+            propertyPath[pos] = new PropertyPathItem(itemName, itemIndex, isPartOfDictionary);
+
+            if (itemValue == null)
+            {
+                // null items are reported like null members instead of being silently skipped
+                EnqueueLeafItem(
+                    null, itemName, propertyPath,
+                    parentRef, parentNode, objectAccessor, traversalQueue, ref leafNodeCache);
+                return;
+            }
+
+            var itemType = itemValue.GetType();
+
+            // items without traversable members (primitives, strings, decimals, ...) are
+            // reported directly; everything else recurses so its members get visited
+            if (_objectEnumerator.Enumerate(itemType).Roots.Count == 0 ||
+                (!itemType.IsValueType && !visited.Add(itemValue)))
+            {
+                EnqueueLeafItem(
+                    itemValue, itemName, propertyPath,
+                    parentRef, parentNode, objectAccessor, traversalQueue, ref leafNodeCache);
+                return;
+            }
+
+            TraverseCore(itemValue, visitorFunc, ref context, predicate, propertyPath, visited);
+        }
+
+        private static void EnqueueLeafItem(
+            object? itemValue,
+            string itemName,
+            PropertyPathItem[] propertyPath,
+            Ref<ObjectMemberInfo>? parentRef,
+            ObjectGraphNode? parentNode,
+            ObjectAccessor objectAccessor,
+            Queue<(MemberAccessor IterationItem, ObjectGraphNode Node)> traversalQueue,
+            ref Dictionary<Type, ObjectGraphNode>? leafNodeCache)
+        {
+            // Same-typed items (the overwhelmingly common case - a homogeneous List<int>, int[], etc.) can
+            // share one ObjectGraphNode instead of allocating a new node (and its backing Children list) per item.
+            var itemType = itemValue?.GetType() ?? typeof(object);
+            leafNodeCache ??= new Dictionary<Type, ObjectGraphNode>();
+            if (!leafNodeCache.TryGetValue(itemType, out var itemGraphNode))
+            {
+                itemGraphNode = new ObjectGraphNode(itemType, parentNode);
+                leafNodeCache[itemType] = itemGraphNode;
+            }
+
+            traversalQueue.Enqueue(
+                (new(
+                    new ObjectMemberInfo(
+                        itemName,
+                        MemberType.CollectionItem,
+                        itemValue!,
+                        parentRef,
+                        itemType,
+                        propertyPath),
+                    objectAccessor),
+                    itemGraphNode));
+        }
+
+        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
+        {
+            public static readonly ReferenceEqualityComparer Instance = new();
+
+            public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
+
+            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
     }
 }

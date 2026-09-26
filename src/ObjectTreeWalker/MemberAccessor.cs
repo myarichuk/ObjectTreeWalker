@@ -63,8 +63,18 @@ public readonly struct MemberAccessor
     /// </summary>
     /// <param name="value">member value to be returned</param>
     /// <returns>true if the member is found, false otherwise</returns>
-    public bool TryGetValue(out object? value) =>
-        _objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value);
+    public bool TryGetValue(out object? value)
+    {
+        // collection items carry their value directly (it may legitimately be null);
+        // going through the object accessor here would throw on a null instance
+        if (_memberInfo.MemberType == MemberType.CollectionItem)
+        {
+            value = _memberInfo.Instance;
+            return true;
+        }
+
+        return _objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value);
+    }
 
     /// <summary>
     /// Gets the list of property name and it's parents in-order
@@ -76,8 +86,17 @@ public readonly struct MemberAccessor
     /// </summary>
     /// <param name="newValue">New member value</param>
     /// <exception cref="InvalidOperationException">Failed to fetch parent property name. This is not supposed to happen and is likely an issue.</exception>
+    /// <exception cref="InvalidOperationException">The accessor represents a collection item, which cannot be set.</exception>
     public void SetValue(object newValue)
     {
+        // collection items carry no settable member (there is no member named 'Items[0]'
+        // on the accessor): fail loudly instead of silently ignoring the set
+        if (_memberInfo.MemberType == MemberType.CollectionItem)
+        {
+            throw new InvalidOperationException(
+                $"Cannot set value of collection item '{_memberInfo.Name}': collection items are read-only during traversal. Mutate the collection itself instead.");
+        }
+
         // struct properties get special treatment
         if (_memberInfo.Parent is
             {

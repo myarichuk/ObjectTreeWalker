@@ -68,6 +68,11 @@ var clone = someObject.DeepClone();
 ## Notes
 - The iterator will read public and private properties and fields but will ignore any static members of the object.
 - The iterator will ignore backing fields for "auto properties" and any compiler-generated fields such as closures (unless specified in the constructor).
+- Traversal contract: collection *members* are expanded, never visited; collection items are reported as `MemberType.CollectionItem` and are read-only (`SetValue` on one throws `InvalidOperationException`); dictionary keys/values are flagged `IsPartOfDictionary`; an already-expanded instance reached again is reported once as a leaf and never re-expanded; struct `TContext` accumulates across collection recursion; a root `string` or other member-less leaf visits zero members.
+- `KeyValuePair<K,V>` members report `Key`/`Value` once; multidimensional array items use rank indices (`M[0,1]`); enum members are leaves.
+- By default a throwing member getter aborts the whole traversal; pass `skipThrowingMembers: true` to the `ObjectMemberIterator` constructor to skip such members instead.
+- `DeepClone()` supports arrays, dictionaries, `IList`/`ICollection<T>` collections, and plain objects. Compiler-generated iterator state machines (e.g. `yield` generators) throw `NotSupportedException` — materialize them into a `List<T>` or array first. Collection comparers are preserved when the type offers a matching constructor.
+- Long-lived hosts that see many dynamic or generic types can reclaim type-cache memory via `ObjectEnumerator.ClearCache()`, `ObjectAccessor.ClearCache()`, and `ObjectExtensions.ClearCache()`.
 - While the iterator is well-tested, there may be some bugs. If you encounter any issues, please open an issue with a description.
 
 ## Contributing

@@ -56,6 +56,12 @@ internal class ObjectAccessor
 
         foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
         {
+            // indexers require arguments to read and cannot be accessed like plain members
+            if (propertyInfo.GetIndexParameters().Length != 0)
+            {
+                continue;
+            }
+
             if (propertyInfo.PropertyType.IsPointer)
             {
                 throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer property, it is not supported by {nameof(ObjectAccessor)}.");
@@ -98,6 +104,20 @@ internal class ObjectAccessor
     /// </remarks>
     public static ObjectAccessor GetOrCreate(Type objectType) =>
         AccessorCache.GetOrAdd(objectType, static t => new ObjectAccessor(t));
+
+    /// <summary>
+    /// Clears the shared <see cref="ObjectAccessor"/> and getter-default caches.
+    /// </summary>
+    /// <remarks>
+    /// The caches are keyed by type, so this is only needed to reclaim memory in
+    /// long-lived hosts that see many dynamic or generic types — never for correctness.
+    /// See also <see cref="ObjectEnumerator.ClearCache"/> and <see cref="ObjectExtensions.ClearCache"/>.
+    /// </remarks>
+    public static void ClearCache()
+    {
+        AccessorCache.Clear();
+        GetDefaultCache.Clear();
+    }
 
     /// <summary>
     /// Try fetching the field or a property from the object
