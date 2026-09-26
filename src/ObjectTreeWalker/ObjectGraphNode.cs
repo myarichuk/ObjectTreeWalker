@@ -52,17 +52,11 @@ internal record ObjectGraphNode
     /// </summary>
     /// <param name="memberInfo">member info of the node</param>
     /// <param name="parent">parent object of the node</param>
-    /// <param name="children">children of the node</param>
-    public ObjectGraphNode(MemberInfo memberInfo, ObjectGraphNode? parent, IEnumerable<ObjectGraphNode>? children = null)
+    public ObjectGraphNode(MemberInfo memberInfo, ObjectGraphNode? parent)
     {
         MemberInfo = memberInfo;
         Name = memberInfo.Name;
         Type = memberInfo.GetUnderlyingType()!;
         Parent = parent;
-
-        if (children != null)
-        {
-            Children.AddRange(children);
-        }
     }
 }

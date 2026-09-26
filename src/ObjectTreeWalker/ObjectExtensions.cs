@@ -34,6 +34,16 @@ namespace ObjectTreeWalker
         // as items are added one at a time.
         private static readonly ConcurrentDictionary<Type, Func<int, object>?> CollectionCapacityFactoryCache = new();
 
+        // The collection's comparer (Dictionary<TKey,TValue>.Comparer, HashSet<T>.Comparer, ...), if any.
+        // Clones reuse the source's comparer instead of silently falling back to the default one.
+        private static readonly ConcurrentDictionary<Type, PropertyInfo?> CollectionComparerPropertyCache = new();
+
+        // (capacity, comparer) -> collection factories for comparer-aware construction.
+        private static readonly ConcurrentDictionary<Type, Func<int, object?, object>?> CollectionSizedComparerFactoryCache = new();
+
+        // (comparer) -> collection factories for comparer-aware construction without pre-sizing.
+        private static readonly ConcurrentDictionary<Type, Func<object?, object>?> CollectionComparerFactoryCache = new();
+
         // Compiled Add(item) delegate per collection type, replacing MethodInfo.Invoke reflection (which boxes
         // its argument array on every call) for the generic ICollection<T> cloning fallback path.
         private static readonly ConcurrentDictionary<Type, Action<object, object?>?> CollectionAdderCache = new();
@@ -56,6 +66,11 @@ namespace ObjectTreeWalker
         private static readonly MethodInfo DeepCloneInternalMethod =
             typeof(ObjectExtensions).GetMethod(nameof(DeepCloneInternal), BindingFlags.NonPublic | BindingFlags.Static)!;
 
+        private static readonly MethodInfo SetFieldValueMethod =
+            typeof(ObjectExtensions).GetMethod(nameof(SetFieldValue), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        private static void SetFieldValue(object obj, FieldInfo field, object? value) => field.SetValue(obj, value);
+
         private static readonly MethodInfo ReferenceEqualsMethod =
             typeof(object).GetMethod(nameof(ReferenceEquals), BindingFlags.Public | BindingFlags.Static)!;
 
@@ -71,6 +86,29 @@ namespace ObjectTreeWalker
         // single Clear() with zero allocation, once the pool has warmed up.
         [ThreadStatic]
         private static Stack<Dictionary<object, object>>? visitedPool;
+
+        /// <summary>
+        /// Clears all internal DeepClone caches shared by every thread.
+        /// </summary>
+        /// <remarks>
+        /// The caches are keyed by type, so this is only needed to reclaim memory in
+        /// long-lived hosts that see many dynamic or generic types — never for correctness.
+        /// See also <see cref="ObjectEnumerator.ClearCache"/> and <see cref="ObjectAccessor.ClearCache"/>.
+        /// </remarks>
+        public static void ClearCache()
+        {
+            DeepCloneFieldsCache.Clear();
+            NeedsDeepCloneCache.Clear();
+            CollectionFactoryCache.Clear();
+            CollectionCapacityFactoryCache.Clear();
+            CollectionComparerPropertyCache.Clear();
+            CollectionSizedComparerFactoryCache.Clear();
+            CollectionComparerFactoryCache.Clear();
+            CollectionAdderCache.Clear();
+            CollectionElementTypeCache.Clear();
+            FastCollectionCopyCache.Clear();
+            TypedClonerCache.Clear();
+        }
 
         /// <summary>
         /// Creates a deep clone of the object.
@@ -166,9 +204,18 @@ namespace ObjectTreeWalker
                 return CloneList(sourceList, type, visited);
             }
 
-            if (source is IEnumerable sourceEnumerable && TryGetCollectionAdder(type, out var adder))
+            if (source is IEnumerable sourceEnumerable)
             {
-                return CloneCollection(sourceEnumerable, type, adder!, visited);
+                if (TryGetCollectionAdder(type, out var adder))
+                {
+                    return CloneCollection(sourceEnumerable, type, adder!, visited);
+                }
+
+                if (type.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+                {
+                    throw new NotSupportedException(
+                        $"Cannot deep clone enumerable of type {type.AssemblyQualifiedName}: compiler-generated iterators and generator outputs cannot be reconstructed. Materialize them into a List<T> or array first.");
+                }
             }
 
             return CloneObject(source, type, visited);
@@ -193,13 +240,16 @@ namespace ObjectTreeWalker
 
             if (array.Rank == 1)
             {
+                // rank-1 arrays may have a non-zero lower bound (Array.CreateInstance);
+                // indices must be offset or GetValue/SetValue throw
+                var lowerBound = array.GetLowerBound(0);
                 for (int i = 0; i < array.Length; i++)
                 {
-                    var item = array.GetValue(i);
+                    var item = array.GetValue(i + lowerBound);
                     if (item != null)
                     {
                         var clonedItem = DeepCloneInternal(item, visited);
-                        cloneArray.SetValue(clonedItem, i);
+                        cloneArray.SetValue(clonedItem, i + lowerBound);
                     }
                 }
             }
@@ -215,12 +265,13 @@ namespace ObjectTreeWalker
 
         private static object CloneDictionary(IDictionary source, Type type, Dictionary<object, object> visited)
         {
-            var clone = (IDictionary)CreateCollectionInstance(type, source.Count);
+            var clone = (IDictionary)CreateCollectionInstance(type, source.Count, GetCollectionComparerValue(type, source));
             RegisterVisited(source, clone, type, visited);
 
             if (TryGetFastCollectionCopy(type, out var fastCopy))
             {
                 fastCopy!(source, clone);
+                CopyCollectionExtraState(source, clone, type, visited);
                 return clone;
             }
 
@@ -231,17 +282,20 @@ namespace ObjectTreeWalker
                 clone[clonedKey!] = clonedValue;
             }
 
+            CopyCollectionExtraState(source, clone, type, visited);
+
             return clone;
         }
 
         private static object CloneList(IList source, Type type, Dictionary<object, object> visited)
         {
-            var clone = (IList)CreateCollectionInstance(type, source.Count);
+            var clone = (IList)CreateCollectionInstance(type, source.Count, GetCollectionComparerValue(type, source));
             RegisterVisited(source, clone, type, visited);
 
             if (TryGetFastCollectionCopy(type, out var fastCopy))
             {
                 fastCopy!(source, clone);
+                CopyCollectionExtraState(source, clone, type, visited);
                 return clone;
             }
 
@@ -250,19 +304,23 @@ namespace ObjectTreeWalker
                 clone.Add(DeepCloneInternal(item, visited));
             }
 
+            CopyCollectionExtraState(source, clone, type, visited);
+
             return clone;
         }
 
         private static object CloneCollection(IEnumerable source, Type type, Action<object, object?> adder, Dictionary<object, object> visited)
         {
+            var comparer = GetCollectionComparerValue(type, source);
             var clone = source is ICollection sourceCollection
-                ? CreateCollectionInstance(type, sourceCollection.Count)
-                : CreateCollectionInstance(type);
+                ? CreateCollectionInstance(type, sourceCollection.Count, comparer)
+                : CreateCollectionInstance(type, comparer);
             RegisterVisited(source, clone, type, visited);
 
             if (TryGetFastCollectionCopy(type, out var fastCopy))
             {
                 fastCopy!(source, clone);
+                CopyCollectionExtraState(source, clone, type, visited);
                 return clone;
             }
 
@@ -270,6 +328,8 @@ namespace ObjectTreeWalker
             {
                 adder(clone, DeepCloneInternal(item, visited));
             }
+
+            CopyCollectionExtraState(source, clone, type, visited);
 
             return clone;
         }
@@ -286,9 +346,39 @@ namespace ObjectTreeWalker
                 return clone;
             }
 
+            // readonly fields cannot be assigned from a compiled expression tree when the clone
+            // itself is a value type (the assignment target would be a copy); fall back to a
+            // reflection loop for those structs (classes are handled inside the typed cloner).
+            if (type.IsValueType && fieldsToClone.Any(static node => ((FieldInfo)node.MemberInfo).IsInitOnly))
+            {
+                return CloneObjectViaReflection(source, type, visited);
+            }
+
             // types with fields to revisit get a compiled per-type delegate that accesses those fields
             // directly (no string-keyed dictionary lookup, no box/unbox round trip through ObjectAccessor).
             return GetTypedCloner(type)(source, visited);
+        }
+
+        private static object CloneObjectViaReflection(object source, Type type, Dictionary<object, object> visited)
+        {
+            var clone = MemberwiseCloneFunc(source);
+            RegisterVisited(source, clone, type, visited);
+
+            foreach (var node in GetDeepCloneFields(type))
+            {
+                var field = (FieldInfo)node.MemberInfo;
+                var origValue = field.GetValue(source);
+                var clonedValue = DeepCloneInternal(origValue, visited);
+
+                // MemberwiseClone already copied this reference (e.g. an immutable string or a null) -
+                // no need to set it again.
+                if (!ReferenceEquals(clonedValue, origValue))
+                {
+                    field.SetValue(clone, clonedValue);
+                }
+            }
+
+            return clone;
         }
 
         private static Func<object, Dictionary<object, object>, object> GetTypedCloner(Type type) =>
@@ -334,9 +424,19 @@ namespace ObjectTreeWalker
 
                 // MemberwiseClone already copied this reference (e.g. an immutable string, a null, or a cyclic
                 // reference resolved back to the very clone being built) - no need to set it again.
+                // Readonly fields (e.g. the backing field of a get-only auto-property) cannot be assigned
+                // from an expression tree, so they go through a small reflection helper instead.
+                Expression setField = field.IsInitOnly
+                    ? Expression.Call(
+                        SetFieldValueMethod,
+                        Expression.Convert(typedClone, typeof(object)),
+                        Expression.Constant(field),
+                        clonedVar)
+                    : Expression.Assign(Expression.Field(typedClone, field), Expression.Convert(clonedVar, field.FieldType));
+
                 statements.Add(Expression.IfThen(
                     Expression.Not(Expression.Call(ReferenceEqualsMethod, clonedVar, origVar)),
-                    Expression.Assign(Expression.Field(typedClone, field), Expression.Convert(clonedVar, field.FieldType))));
+                    setField));
             }
 
             if (type.IsValueType)
@@ -432,6 +532,105 @@ namespace ObjectTreeWalker
                 return Expression.Lambda<Func<object>>(Expression.Convert(Expression.New(ctor), typeof(object))).Compile();
             })();
 
+        private static object CreateCollectionInstance(Type type, object? comparer) =>
+            TryCreateCollectionInstanceWithComparer(type, comparer, useCapacity: false, capacity: 0, out var instance)
+                ? instance!
+                : CreateCollectionInstance(type);
+
+        private static PropertyInfo? GetCollectionComparerProperty(Type type) =>
+            CollectionComparerPropertyCache.GetOrAdd(
+                type, static t => t.GetProperty("Comparer", BindingFlags.Instance | BindingFlags.Public));
+
+        private static object? GetCollectionComparerValue(Type type, object source)
+        {
+            var comparerProperty = GetCollectionComparerProperty(type);
+            if (comparerProperty == null || !comparerProperty.PropertyType.IsInterface)
+            {
+                return null;
+            }
+
+            try
+            {
+                return comparerProperty.GetValue(source);
+            }
+            catch (Exception)
+            {
+                // a throwing Comparer getter must not break cloning the collection's items;
+                // fall back to default construction (previous behavior)
+                return null;
+            }
+        }
+
+        private static bool TryCreateCollectionInstanceWithComparer(
+            Type type, object? comparer, bool useCapacity, int capacity, out object? instance)
+        {
+            instance = null;
+            if (comparer == null)
+            {
+                return false;
+            }
+
+            var comparerType = GetCollectionComparerProperty(type)?.PropertyType;
+            if (comparerType == null || !comparerType.IsInterface || !comparerType.IsInstanceOfType(comparer))
+            {
+                return false;
+            }
+
+            if (useCapacity)
+            {
+                var sizedFactory = CollectionSizedComparerFactoryCache.GetOrAdd(
+                    type, t => BuildSizedComparerFactory(t, comparerType));
+                if (sizedFactory != null)
+                {
+                    instance = sizedFactory(capacity, comparer);
+                    return true;
+                }
+            }
+
+            var factory = CollectionComparerFactoryCache.GetOrAdd(
+                type, t => BuildComparerFactory(t, comparerType));
+            if (factory == null)
+            {
+                return false;
+            }
+
+            instance = factory(comparer);
+            return true;
+        }
+
+        private static Func<int, object?, object>? BuildSizedComparerFactory(Type type, Type comparerType)
+        {
+            var ctor = type.GetConstructor(new[] { typeof(int), comparerType });
+            if (ctor == null)
+            {
+                return null;
+            }
+
+            var capacityParam = Expression.Parameter(typeof(int), "capacity");
+            var comparerParam = Expression.Parameter(typeof(object), "comparer");
+            return Expression.Lambda<Func<int, object?, object>>(
+                Expression.Convert(
+                    Expression.New(ctor, capacityParam, Expression.Convert(comparerParam, comparerType)),
+                    typeof(object)),
+                capacityParam, comparerParam).Compile();
+        }
+
+        private static Func<object?, object>? BuildComparerFactory(Type type, Type comparerType)
+        {
+            var ctor = type.GetConstructor(new[] { comparerType });
+            if (ctor == null)
+            {
+                return null;
+            }
+
+            var comparerParam = Expression.Parameter(typeof(object), "comparer");
+            return Expression.Lambda<Func<object?, object>>(
+                Expression.Convert(
+                    Expression.New(ctor, Expression.Convert(comparerParam, comparerType)),
+                    typeof(object)),
+                comparerParam).Compile();
+        }
+
         // Pre-sizes the clone to the source's item count when the collection type has a (int capacity)
         // constructor (List<T>, Dictionary<TKey,TValue>, HashSet<T>, etc.), avoiding the repeated backing-array
         // resizes that adding items one at a time into a zero-capacity instance would otherwise cause.
@@ -451,6 +650,144 @@ namespace ObjectTreeWalker
             });
 
             return capacityFactory != null ? capacityFactory(capacity) : CreateCollectionInstance(type);
+        }
+
+        private static object CreateCollectionInstance(Type type, int capacity, object? comparer)
+        {
+            // prefer (capacity, comparer), then (comparer), so collections without a
+            // pre-sizing constructor (e.g. SortedSet<T>) still keep the source comparer
+            // instead of silently falling back to the default one
+            if (comparer != null &&
+                TryCreateCollectionInstanceWithComparer(type, comparer, useCapacity: true, capacity, out var instance))
+            {
+                return instance!;
+            }
+
+            if (comparer != null &&
+                TryCreateCollectionInstanceWithComparer(type, comparer, useCapacity: false, capacity: 0, out var comparerInstance))
+            {
+                return comparerInstance!;
+            }
+
+            return CreateCollectionInstanceWithCapacityFallback(type, capacity);
+        }
+
+        private static object CreateCollectionInstanceWithCapacityFallback(Type type, int capacity)
+        {
+            var capacityFactory = CollectionCapacityFactoryCache.GetOrAdd(type, static t =>
+            {
+                var ctor = t.GetConstructor(new[] { typeof(int) });
+                if (ctor == null)
+                {
+                    return null;
+                }
+
+                var capacityParam = Expression.Parameter(typeof(int), "capacity");
+                return Expression.Lambda<Func<int, object>>(
+                    Expression.Convert(Expression.New(ctor, capacityParam), typeof(object)), capacityParam).Compile();
+            });
+
+            return capacityFactory != null ? capacityFactory(capacity) : CreateCollectionInstance(type);
+        }
+
+        /// <summary>
+        /// Copies state declared on a collection subclass (e.g. an extra property on a
+        /// <c>List&lt;T&gt;</c> derivative) from source to clone. Plain framework collections
+        /// are skipped: their storage lives on the framework type itself and is already cloned.
+        /// </summary>
+        private static void CopyCollectionExtraState(object source, object clone, Type type, Dictionary<object, object> visited)
+        {
+            if (IsFrameworkCollectionType(type))
+            {
+                return;
+            }
+
+            // walk up to (excluding) the framework base: in an A : B : List<int> chain where
+            // the extra state lives on B, looking only at the concrete type would miss it.
+            // Derived members win when a name is hidden with 'new'.
+            var copiedProperties = new HashSet<string>();
+            var copiedFields = new HashSet<string>();
+            for (var current = type; current != null && !IsFrameworkCollectionType(current); current = current.BaseType)
+            {
+                CopyDeclaredCollectionState(source, clone, current, visited, copiedProperties, copiedFields);
+            }
+        }
+
+        private static void CopyDeclaredCollectionState(
+            object source,
+            object clone,
+            Type type,
+            Dictionary<object, object> visited,
+            HashSet<string> copiedProperties,
+            HashSet<string> copiedFields)
+        {
+            foreach (var property in type.GetProperties(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (property.GetIndexParameters().Length != 0 || !property.CanRead || !copiedProperties.Add(property.Name))
+                {
+                    continue;
+                }
+
+                var getMethod = property.GetMethod;
+                var setMethod = property.SetMethod;
+                if (getMethod == null || getMethod.IsStatic || setMethod == null || setMethod.IsStatic)
+                {
+                    continue;
+                }
+
+                object? originalValue;
+                try
+                {
+                    originalValue = getMethod.Invoke(source, null);
+                }
+                catch (Exception)
+                {
+                    // best effort: a throwing getter must not break cloning the collection's items
+                    continue;
+                }
+
+                // NOTE: no ReferenceEquals skip here (unlike CloneObject): the clone was built
+                // with a fresh constructor, not MemberwiseClone, so even identical references
+                // (e.g. an immutable string) still need to be assigned onto the new instance.
+                var clonedValue = DeepCloneInternal(originalValue, visited);
+                setMethod.Invoke(clone, new[] { clonedValue });
+            }
+
+            foreach (var field in type.GetFields(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (field.IsStatic || !copiedFields.Add(field.Name))
+                {
+                    continue;
+                }
+
+                // auto-property backing fields are covered through their property above
+                if (field.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+                {
+                    continue;
+                }
+
+                var clonedFieldValue = DeepCloneInternal(field.GetValue(source), visited);
+                field.SetValue(clone, clonedFieldValue);
+            }
+        }
+
+        private static bool IsFrameworkCollectionType(Type type)
+        {
+            var assembly = type.Assembly;
+            if (assembly == typeof(object).Assembly ||
+                assembly == typeof(ArrayList).Assembly ||
+                assembly == typeof(System.Collections.ObjectModel.Collection<>).Assembly ||
+                assembly == typeof(System.Collections.Specialized.StringCollection).Assembly)
+            {
+                return true;
+            }
+
+            // other framework collections (e.g. ConcurrentDictionary, whose lock objects must
+            // never be copied by field) live in System.* assemblies; user subclasses live in
+            // user assemblies and still get their extra state copied
+            return type.Namespace != null &&
+                (type.Namespace == "System" || type.Namespace.StartsWith("System.", StringComparison.Ordinal)) &&
+                assembly.GetName().Name!.StartsWith("System.", StringComparison.Ordinal);
         }
 
         private static bool TryGetCollectionAdder(Type type, out Action<object, object?>? adder)
