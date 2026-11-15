@@ -24,7 +24,7 @@ var iterator = new ObjectMemberIterator();
 iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 {
     var propertyValue = accessor.GetValue();
-    prop.SetValue(/* some other value */);
+    accessor.SetValue(/* some other value */);
 });
 ```
 
@@ -37,7 +37,7 @@ var iterator = new ObjectMemberIterator();
 iterator.Traverse(someObject, (in MemberAccessor accessor) =>
 {
     var propertyValue = accessor.GetValue();
-    prop.SetValue(/* some other value */);
+    accessor.SetValue(/* some other value */);
 
     //filtering for selective iteration is a simple lambda
 }, (in MemberAccessor accessor) => accessor.Name != "Foo1" && accessor.MemberType != MemberType.Property);
@@ -66,13 +66,15 @@ var clone = someObject.DeepClone();
 (Apple M2, .NET 10.0.9, results as of this writing - actual numbers will vary by machine.)
 
 ## Notes
-- The iterator will read public and private properties and fields but will ignore any static members of the object.
-- The iterator will ignore backing fields for "auto properties" and any compiler-generated fields such as closures (unless specified in the constructor).
-- Traversal contract: collection *members* are expanded, never visited; collection items are reported as `MemberType.CollectionItem` and are read-only (`SetValue` on one throws `InvalidOperationException`); dictionary keys/values are flagged `IsPartOfDictionary`; an already-expanded instance reached again is reported once as a leaf and never re-expanded; struct `TContext` accumulates across collection recursion; a root `string` or other member-less leaf visits zero members.
+- The iterator reads public and private properties and fields, including private members declared on base classes, but ignores static members. A member hidden with `new` is reported separately from the member it hides; an overridden property is reported once.
+- The iterator will ignore backing fields for "auto properties" and any compiler-generated fields such as closures (unless specified in the constructor). Pointer, by-ref and `ref struct` members are skipped.
+- Traversal contract: collection *members* are expanded, never visited; collection items are reported as `MemberType.CollectionItem` and are read-only (`SetValue` on one throws `InvalidOperationException`); dictionary keys/values are flagged `IsPartOfDictionary`; an already-expanded instance (object *or* collection) reached again is reported once as a leaf and never re-expanded, so cyclic graphs - including a collection containing itself - terminate; struct `TContext` accumulates across collection recursion; a root `string` or other member-less leaf visits zero members.
+- `PropertyPath` is the full route to a member, through collection items too (`Items[0]`, `V` for `Items[0].V`).
+- `SetValue` persists changes made to members of structs: the modified copy is written back through every enclosing struct and into the enclosing list, array or dictionary value. When that is impossible it throws `InvalidOperationException` instead of silently losing the change (a struct in a `HashSet<T>` or a dictionary key, a struct reached through a get-only property, a get-only property itself).
 - `KeyValuePair<K,V>` members report `Key`/`Value` once; multidimensional array items use rank indices (`M[0,1]`); enum members are leaves.
 - By default a throwing member getter aborts the whole traversal; pass `skipThrowingMembers: true` to the `ObjectMemberIterator` constructor to skip such members instead.
-- `DeepClone()` supports arrays, dictionaries, `IList`/`ICollection<T>` collections, and plain objects. Compiler-generated iterator state machines (e.g. `yield` generators) throw `NotSupportedException` — materialize them into a `List<T>` or array first. Collection comparers are preserved when the type offers a matching constructor.
-- Long-lived hosts that see many dynamic or generic types can reclaim type-cache memory via `ObjectEnumerator.ClearCache()`, `ObjectAccessor.ClearCache()`, and `ObjectExtensions.ClearCache()`.
+- `DeepClone()` supports arrays, dictionaries, `IList`/`ICollection<T>` collections, concurrent collections and plain objects, including private fields of base classes. Collections without a usable constructor (`ReadOnlyCollection<T>`, `ImmutableArray<T>`, ...) are cloned field by field. Reflection objects (`Type`, `MemberInfo`, ...) are shared, never copied. Compiler-generated iterator state machines (e.g. `yield` generators) throw `NotSupportedException` — materialize them into a `List<T>` or array first. Collection comparers are preserved when the type offers a matching constructor.
+- Long-lived hosts that see many dynamic or generic types can reclaim type-cache memory via `ObjectMemberIterator.ClearCache()` and `ObjectExtensions.ClearCache()`.
 - While the iterator is well-tested, there may be some bugs. If you encounter any issues, please open an issue with a description.
 
 ## Contributing

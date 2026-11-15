@@ -12,7 +12,7 @@ namespace ObjectTreeWalker
         /// </summary>
         /// <param name="member">instance of the base class</param>
         /// <returns>Instance of the concrete underlying type</returns>
-        /// <exception cref="ArgumentException">The underlying type of the <see cref="MemberInfo"/>  must be EventInfo, FieldInfo, MethodInfo or PropertyInfo</exception>
+        /// <exception cref="ArgumentException">The underlying type of the <see cref="MemberInfo"/>  must be EventInfo, FieldInfo, MethodInfo, PropertyInfo or Type</exception>
         public static Type? GetUnderlyingType(this MemberInfo member) =>
             member.MemberType switch
             {
@@ -20,8 +20,10 @@ namespace ObjectTreeWalker
                 MemberTypes.Field => ((FieldInfo)member).FieldType,
                 MemberTypes.Method => ((MethodInfo)member).ReturnType,
                 MemberTypes.Property => ((PropertyInfo)member).PropertyType,
-                MemberTypes.TypeInfo => (Type)member,
-                _ => throw new ArgumentException("Input MemberInfo must be if type EventInfo, FieldInfo, MethodInfo, Type or PropertyInfo"),
+
+                // a nested type reports NestedType, not TypeInfo
+                MemberTypes.TypeInfo or MemberTypes.NestedType => (Type)member,
+                _ => throw new ArgumentException("Input MemberInfo must be of type EventInfo, FieldInfo, MethodInfo, PropertyInfo or Type"),
             };
     }
 }

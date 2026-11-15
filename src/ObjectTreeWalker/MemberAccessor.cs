@@ -8,18 +8,14 @@ namespace ObjectTreeWalker;
 /// </summary>
 public readonly struct MemberAccessor
 {
-    private readonly ObjectAccessor _objectAccessor;
     private readonly ObjectMemberInfo _memberInfo;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MemberAccessor"/> struct.
     /// </summary>
-    /// <param name="memberInfo">Information about the object member (property/field)</param>
-    /// <param name="objectAccessor">internal object accessor that allows accessing members</param>
-    /// <exception cref="ArgumentNullException">Gets thrown if any of constructor parameters is null</exception>
-    internal MemberAccessor(in ObjectMemberInfo memberInfo, ObjectAccessor objectAccessor)
+    /// <param name="memberInfo">Information about the object member (property/field) or collection item</param>
+    internal MemberAccessor(in ObjectMemberInfo memberInfo)
     {
-        _objectAccessor = objectAccessor ?? throw new ArgumentNullException(nameof(objectAccessor));
         _memberInfo = memberInfo;
     }
 
@@ -39,6 +35,11 @@ public readonly struct MemberAccessor
     public MemberType MemberType => _memberInfo.MemberType;
 
     /// <summary>
+    /// Gets the list of property name and it's parents in-order
+    /// </summary>
+    public IReadOnlyList<PropertyPathItem> PropertyPath => _memberInfo.PropertyPath;
+
+    /// <summary>
     /// Gets exposing raw data, needed for internal functionality
     /// </summary>
     internal ObjectMemberInfo RawInfo => _memberInfo;
@@ -46,116 +47,95 @@ public readonly struct MemberAccessor
     /// <summary>
     /// Accesses and fetches member value
     /// </summary>
-    /// <returns>Member value</returns>
-    public object? GetValue()
-    {
-        object value;
-        if (_memberInfo.MemberType == MemberType.CollectionItem)
-        {
-            return _memberInfo.Instance;
-        }
-
-        return !_objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value) ? null : value;
-    }
+    /// <returns>Member value, or null if the member cannot be read (a set-only property)</returns>
+    public object? GetValue() => TryGetValue(out var value) ? value : null;
 
     /// <summary>
     /// Try fetch member value
     /// </summary>
     /// <param name="value">member value to be returned</param>
-    /// <returns>true if the member is found, false otherwise</returns>
+    /// <returns>true if the member could be read, false otherwise (a set-only property)</returns>
     public bool TryGetValue(out object? value)
     {
-        // collection items carry their value directly (it may legitimately be null);
-        // going through the object accessor here would throw on a null instance
+        // collection items carry their value directly (it may legitimately be null)
         if (_memberInfo.MemberType == MemberType.CollectionItem)
         {
             value = _memberInfo.Instance;
             return true;
         }
 
-        return _objectAccessor.TryGetValue(_memberInfo.Instance, _memberInfo.Name, out value);
-    }
+        var getter = _memberInfo.Node!.Getter;
+        if (getter == null)
+        {
+            value = null;
+            return false;
+        }
 
-    /// <summary>
-    /// Gets the list of property name and it's parents in-order
-    /// </summary>
-    public IReadOnlyList<PropertyPathItem> PropertyPath => _memberInfo.PropertyPath;
+        value = getter(_memberInfo.Instance!);
+        return true;
+    }
 
     /// <summary>
     /// Accesses and sets member value
     /// </summary>
-    /// <param name="newValue">New member value</param>
-    /// <exception cref="InvalidOperationException">Failed to fetch parent property name. This is not supposed to happen and is likely an issue.</exception>
-    /// <exception cref="InvalidOperationException">The accessor represents a collection item, which cannot be set.</exception>
-    public void SetValue(object newValue)
+    /// <param name="newValue">New member value (null sets a value-type member to its default)</param>
+    /// <remarks>
+    /// Members of structs are reached through boxed copies. After the member is set, the modified copy is
+    /// written back up the chain of enclosing structs (and into the enclosing collection, for struct items),
+    /// so the change is visible on the traversed object.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// The accessor represents a collection item, the member has no setter, the value type does not match,
+    /// or the change to a struct cannot be persisted (e.g. it is reached through a get-only struct property).
+    /// </exception>
+    public void SetValue(object? newValue)
     {
-        // collection items carry no settable member (there is no member named 'Items[0]'
-        // on the accessor): fail loudly instead of silently ignoring the set
+        // collection items carry no settable member (there is no member named 'Items[0]'):
+        // fail loudly instead of silently ignoring the set
         if (_memberInfo.MemberType == MemberType.CollectionItem)
         {
             throw new InvalidOperationException(
                 $"Cannot set value of collection item '{_memberInfo.Name}': collection items are read-only during traversal. Mutate the collection itself instead.");
         }
 
-        // struct properties get special treatment
-        if (_memberInfo.Parent is
-            {
-                Value.Type: { IsPrimitive: false, IsValueType: true } // make sure our "client" is indeed a struct
-            })
+        var node = _memberInfo.Node!;
+        var setter = node.Setter ?? throw new InvalidOperationException(
+            $"Cannot set member '{_memberInfo.Name}' of {node.MemberInfo.DeclaringType}: it has no setter.");
+
+        ObjectAccessor.AssignChecked(setter, node.Type, _memberInfo.Instance!, _memberInfo.Name, newValue);
+        WriteBackEnclosingValueTypes();
+    }
+
+    private void WriteBackEnclosingValueTypes()
+    {
+        var current = _memberInfo;
+
+        // current.Instance was just mutated. If it is a boxed struct it may be a detached copy of the value
+        // held by its parent - store it back, and repeat for the parent, until a reference type is reached.
+        while (current.Instance is { } instance && instance.GetType().IsValueType && current.Parent is { } parentRef)
         {
-            if (_memberInfo.Parent is
-                {
-                    Value.Parent: { } parentOfParentRef, // if the struct has a parent, this means it is embedded
-                })
+            var parent = parentRef.Value;
+            if (parent.MemberType == MemberType.CollectionItem)
             {
-                var parentPropertyName = parentOfParentRef.Value.PropertyPath.LastOrDefault();
-                if (parentPropertyName == default)
-                {
-                    throw new InvalidOperationException(
-                        "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
-                }
-
-                _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
-
-                var objectType = parentOfParentRef.Value.Instance.GetType();
-                var parentOfParentRefAccessor = ObjectAccessor.GetOrCreate(objectType);
-
-                if (!parentOfParentRefAccessor.TryGetValue(
-                    parentOfParentRef.Value.Instance,
-                    parentOfParentRef.Value.Name,
-                    out var properParentInstance))
-                {
-                    throw new InvalidOperationException(
-                        "Failed to set embedded struct value, this is not supposed to happen and is likely a bug.");
-                }
-
-                var properParentObjectAccessor = ObjectAccessor.GetOrCreate(properParentInstance!.GetType());
-
-                properParentObjectAccessor.TrySetValue(
-                    properParentInstance,
-                    _memberInfo.Parent.Value.Name,
-                    _memberInfo.Instance);
+                // a struct item enumerated out of a collection - its container is a reference
+                // (or the root), so storing the item back is the last step
+                parent.Slot?.Write(instance);
+                return;
             }
-            else
+
+            var parentNode = parent.Node!;
+
+            // a member declared as a reference type (object, an interface) holds the very box we mutated
+            if (!parentNode.Type.IsValueType)
             {
-                _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
-
-                var parentPathItem = _memberInfo.Parent.Value.PropertyPath.LastOrDefault();
-                if (parentPathItem == default)
-                {
-                    throw new InvalidOperationException(
-                        "Failed to fetch parent property name. This is not supposed to happen and is likely a bug.");
-                }
-
-                var parentInstance = _memberInfo.Parent.Value.Instance;
-                var properParentObjectAccessor = ObjectAccessor.GetOrCreate(parentInstance.GetType());
-
-                properParentObjectAccessor.TrySetValue(parentInstance, parentPathItem.Name, _memberInfo.Instance);
+                return;
             }
-        }
-        else
-        {
-            _objectAccessor.TrySetValue(_memberInfo.Instance, _memberInfo.Name, newValue);
+
+            var parentSetter = parentNode.Setter ?? throw new InvalidOperationException(
+                $"Cannot persist the change to '{_memberInfo.Name}': it was made to a copy of struct member '{parent.Name}', which has no setter.");
+
+            parentSetter(parent.Instance!, instance);
+            current = parent;
         }
     }
 }
