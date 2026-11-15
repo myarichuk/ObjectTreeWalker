@@ -350,5 +350,29 @@ namespace ObjectTreeWalker.Tests
             Assert.Equal(3, immutableClone[0].V);
             Assert.NotSame(immutable[0], immutableClone[0]);
         }
+    
+        public class Outer { public Inner In { get; set; } = new(); }
+
+        public class Inner
+        {
+            public int[][] Jagged { get; set; } = { new[] { 1 } };
+
+            public List<Item> Items { get; set; } = new() { new() { V = 2 } };
+        }
+
+        [Fact]
+        public void Property_paths_of_nested_collections_and_item_members_are_complete()
+        {
+            var paths = new List<string>();
+            new ObjectMemberIterator().Traverse(new Outer(), (in MemberAccessor a) =>
+            {
+                // read twice: lazily built paths must be stable
+                var first = string.Join("/", a.PropertyPath.Select(p => p.Name));
+                Assert.Equal(first, string.Join("/", a.PropertyPath.Select(p => p.Name)));
+                paths.Add(first);
+            });
+
+            Assert.Equal(new[] { "In/Items[0]/V", "In/Jagged[0][0]" }, paths.OrderBy(p => p));
+        }
     }
 }

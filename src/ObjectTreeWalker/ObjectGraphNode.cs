@@ -15,6 +15,7 @@ internal sealed class ObjectGraphNode
 {
     private Func<object, object?>? _getter;
     private Action<object, object?>? _setter;
+    private ItemNameCache? _itemNames;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ObjectGraphNode"/> class
@@ -68,6 +69,28 @@ internal sealed class ObjectGraphNode
     /// Gets a value indicating whether this is a property or a field
     /// </summary>
     public MemberType MemberType { get; init; }
+
+    /// <summary>
+    /// Gets or sets the member graph of the runtime type this member's value had last time: a monomorphic
+    /// inline cache in front of the type-keyed graph cache. One reference write, so racing updates are benign;
+    /// readers validate it against the value's actual type.
+    /// </summary>
+    public ObjectGraph? LastValueGraph { get; set; }
+
+    /// <summary>
+    /// Gets or sets the graph of the last item type seen in the collection this member holds (inline cache)
+    /// </summary>
+    public ObjectGraph? LastItemGraph { get; set; }
+
+    /// <summary>
+    /// Gets or sets the graph of the last dictionary key type seen in the collection this member holds (inline cache)
+    /// </summary>
+    public ObjectGraph? LastKeyGraph { get; set; }
+
+    /// <summary>
+    /// Gets the cached names of the items, for a member holding a collection (created on first use)
+    /// </summary>
+    public ItemNameCache ItemNames => _itemNames ??= new ItemNameCache(Name);
 
     /// <summary>
     /// Gets the compiled getter of the member (created on first use), or null if the member cannot be read

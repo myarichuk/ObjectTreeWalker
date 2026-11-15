@@ -25,9 +25,4 @@
     <None Include="..\..\CHANGELOG.md" Link="CHANGELOG.md" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- pinned: a floating version makes every build of a published package non-reproducible -->
-    <PackageReference Include="Sigil" Version="5.0.0" />
-  </ItemGroup>
-
 </Project>

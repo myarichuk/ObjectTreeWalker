@@ -18,8 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PropertyPath` of members inside collection items now includes the path to the item (it used to restart at the item).
 - Single-dimension arrays with a non-zero lower bound are traversed correctly.
 - Pointer, by-ref and `ref struct` members are skipped instead of making the whole type unsupported.
+- The netstandard2.1 build now rejects ref structs in `ObjectAccessor` like the net10.0 build (the check was compiled only for .NET 8+).
 
 ### Changed
+- `DeepClone` rewritten around per-type cloners in hand-written IL held in generic static caches, typed collection paths and a purpose-built identity map: 3-5x faster than before and 3.4-7x faster than DeepCloner on the included benchmarks, with fewer allocations (see README).
+- Traversal: 2-2.6x faster and 82-94% fewer allocations - type-keyed graph cache (no record hashing per value), monomorphic inline caches per member, cached item names, property paths built on demand, pooled identity map, no per-call closures.
+- No package dependencies: Sigil (and its IL verifier) replaced by plain `System.Reflection.Emit`.
 - Member reads/writes during traversal call compiled delegates bound to the member, instead of a name-keyed lookup on every access.
 - Dropped the `Microsoft.Extensions.ObjectPool` and `System.Memory` dependencies; package versions are pinned instead of floating (`*`).
 - `MemberAccessor.SetValue` accepts `null` (`object?`); null sets a value-type member to its default.

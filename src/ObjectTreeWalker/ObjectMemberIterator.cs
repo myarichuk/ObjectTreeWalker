@@ -49,8 +49,6 @@ namespace ObjectTreeWalker
         private const int MaxPooledQueueCapacity = 4096;
         private const int MaxPooledQueuesPerThread = 8;
 
-        private static readonly object EmptyContext = new();
-
         // traversal of collection items recurses, so a thread may need several queues at once
         [ThreadStatic]
         private static Stack<Queue<MemberAccessor>>? queuePool;
@@ -97,11 +95,12 @@ namespace ObjectTreeWalker
                 throw new ArgumentNullException(nameof(visitorFunc));
             }
 
+            // the visitor and predicate travel as the context, so the static lambdas allocate nothing per call
             Traverse(
                 obj,
-                (ref object _, in MemberAccessor accessor) => visitorFunc(accessor),
-                EmptyContext,
-                predicate == null ? null : (in object _, in MemberAccessor accessor) => predicate(accessor));
+                static (ref SimpleCallbacks callbacks, in MemberAccessor accessor) => callbacks.Visitor(accessor),
+                new SimpleCallbacks(visitorFunc, predicate),
+                predicate == null ? null : static (in SimpleCallbacks callbacks, in MemberAccessor accessor) => callbacks.Predicate!(accessor));
         }
 
         /// <summary>
@@ -147,15 +146,24 @@ namespace ObjectTreeWalker
             }
 
             var context = iterationContext;
-            var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            if (!obj.GetType().IsValueType)
-            {
-                visited.Add(obj);
-            }
 
-            var traversal = new Traversal<TContext>(this, visitorFunc, predicate, visited);
-            traversal.Run(obj, null, ref context);
-            return context;
+            // the same pooled, open-addressing identity map DeepClone uses (only its keys matter here)
+            var visited = CloneContext.Rent();
+            try
+            {
+                if (!obj.GetType().IsValueType)
+                {
+                    visited.GetOrAddSlot(obj, out _);
+                }
+
+                var traversal = new Traversal<TContext>(this, visitorFunc, predicate, visited);
+                traversal.Run(obj, null, ref context);
+                return context;
+            }
+            finally
+            {
+                CloneContext.Return(visited);
+            }
         }
 
         private static Queue<MemberAccessor> RentQueue()
@@ -181,25 +189,24 @@ namespace ObjectTreeWalker
             }
         }
 
-        private static PropertyPathItem[] AppendPath(IReadOnlyList<PropertyPathItem> basePath, int baseCount, in PropertyPathItem item)
-        {
-            var path = new PropertyPathItem[baseCount + 1];
-            for (var i = 0; i < baseCount; i++)
-            {
-                path[i] = basePath[i];
-            }
-
-            path[baseCount] = item;
-            return path;
-        }
-
-        private static string ItemName(string prefix, int index) =>
-            prefix.Length == 0 ? $"[{index}]" : $"{prefix}[{index}]";
+        private static string ItemName(string prefix, int index) => ItemNameCache.Format(prefix, index, string.Empty);
 
         private static string ItemName(string prefix, int[] rankIndices)
         {
             var indices = string.Join(",", rankIndices);
             return prefix.Length == 0 ? $"[{indices}]" : $"{prefix}[{indices}]";
+        }
+
+        private readonly struct SimpleCallbacks
+        {
+            public readonly VisitorFunc Visitor;
+            public readonly PredicateFunc? Predicate;
+
+            public SimpleCallbacks(VisitorFunc visitor, PredicateFunc? predicate)
+            {
+                Visitor = visitor;
+                Predicate = predicate;
+            }
         }
 
         /// <summary>
@@ -211,13 +218,13 @@ namespace ObjectTreeWalker
             private readonly ObjectMemberIterator _iterator;
             private readonly VisitorWithContextFunc<TContext> _visitor;
             private readonly PredicateWithContextFunc<TContext>? _predicate;
-            private readonly HashSet<object> _visited;
+            private readonly CloneContext _visited;
 
             public Traversal(
                 ObjectMemberIterator iterator,
                 VisitorWithContextFunc<TContext> visitor,
                 PredicateWithContextFunc<TContext>? predicate,
-                HashSet<object> visited)
+                CloneContext visited)
             {
                 _iterator = iterator;
                 _visitor = visitor;
@@ -231,7 +238,7 @@ namespace ObjectTreeWalker
             /// <param name="obj">the object to visit</param>
             /// <param name="parent">the member/item <paramref name="obj"/> was reached through; null for the root</param>
             /// <param name="context">the traversal context</param>
-            public void Run(object obj, Ref<ObjectMemberInfo>? parent, ref TContext context)
+            public void Run(object obj, MemberFrame? parent, ref TContext context)
             {
                 var queue = RentQueue();
                 var peakQueueSize = 0;
@@ -258,17 +265,26 @@ namespace ObjectTreeWalker
             private static void EnqueueMembers(
                 object obj,
                 ObjectGraph objectGraph,
-                Ref<ObjectMemberInfo>? parent,
+                MemberFrame? parent,
                 Queue<MemberAccessor> queue)
             {
-                var parentPath = parent?.Value.PropertyPath ?? Array.Empty<PropertyPathItem>();
                 var roots = objectGraph.Roots;
                 for (var i = 0; i < roots.Count; i++)
                 {
-                    var root = roots[i];
-                    var path = AppendPath(parentPath, parentPath.Count, new PropertyPathItem(root.Name));
-                    queue.Enqueue(new MemberAccessor(new ObjectMemberInfo(root, obj, parent, path)));
+                    queue.Enqueue(new MemberAccessor(new ObjectMemberInfo(roots[i], obj, parent)));
                 }
+            }
+
+            /// <summary>
+            /// Records <paramref name="instance"/> as expanded
+            /// </summary>
+            /// <param name="instance">a reference-type instance</param>
+            /// <returns>true if it was not expanded before</returns>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private bool MarkVisited(object instance)
+            {
+                _visited.GetOrAddSlot(instance, out var alreadyVisited);
+                return !alreadyVisited;
             }
 
             private int Drain(Queue<MemberAccessor> queue, ref TContext context)
@@ -304,40 +320,50 @@ namespace ObjectTreeWalker
                         continue;
                     }
 
+                    /*
+                     * Always resolve members from the actual runtime type rather than the member's declared type.
+                     * This both handles upcast members (declared as object/ValueType) and lets traversal recurse
+                     * to arbitrary depth. Members are nearly always monomorphic, so the member's last graph is
+                     * checked first (one reference compare) before the type-keyed cache.
+                     */
                     var valueType = value.GetType();
-                    var isReference = !valueType.IsValueType;
+                    var node = current.RawInfo.Node;
+                    var childGraph = node?.LastValueGraph ?? current.RawInfo.ItemGraph;
+                    if (childGraph == null || childGraph.Type != valueType)
+                    {
+                        childGraph = _iterator._objectEnumerator.Enumerate(valueType);
+                        if (node != null)
+                        {
+                            node.LastValueGraph = childGraph;
+                        }
+                    }
 
-                    if (value is IEnumerable collection and not string)
+                    var isReference = !childGraph.IsValueType;
+
+                    if (childGraph.IsCollection)
                     {
                         // collections are tracked like any other instance: a collection reachable from
                         // itself (directly or through its items) must not be expanded forever
-                        if (isReference && !_visited.Add(value))
+                        if (isReference && !MarkVisited(value))
                         {
                             _visitor(ref context, current);
                         }
                         else
                         {
-                            ProcessItems(collection, new Ref<ObjectMemberInfo>(current.RawInfo), queue, ref context);
+                            ProcessItems((IEnumerable)value, new MemberFrame(current.RawInfo), queue, ref context);
                         }
 
                         continue;
                     }
-
-                    /*
-                     * Always resolve members from the actual runtime type rather than the member's declared type.
-                     * This both handles upcast members (declared as object/ValueType) and lets traversal recurse
-                     * to arbitrary depth - ObjectEnumerator.Enumerate is cached per-type, so it is cheap.
-                     */
-                    var childGraph = _iterator._objectEnumerator.Enumerate(valueType);
 
                     if (childGraph.Roots.Count == 0)
                     {
                         // no traversable members (primitive/string/decimal/etc.) - this is a "data" leaf
                         _visitor(ref context, current);
                     }
-                    else if (!isReference || _visited.Add(value))
+                    else if (!isReference || MarkVisited(value))
                     {
-                        EnqueueMembers(value, childGraph, new Ref<ObjectMemberInfo>(current.RawInfo), queue);
+                        EnqueueMembers(value, childGraph, new MemberFrame(current.RawInfo), queue);
                     }
                     else
                     {
@@ -357,13 +383,13 @@ namespace ObjectTreeWalker
             /// <param name="owner">the collection member; null for a root collection</param>
             /// <param name="queue">the queue leaf items are reported through</param>
             /// <param name="context">traversal context</param>
-            private void ProcessItems(IEnumerable items, Ref<ObjectMemberInfo>? owner, Queue<MemberAccessor> queue, ref TContext context)
+            private void ProcessItems(IEnumerable items, MemberFrame? owner, Queue<MemberAccessor> queue, ref TContext context)
             {
-                // Item paths replace the collection member's own trailing path entry with the item
-                // entry ('Items' -> 'Items[3]'), so only the entries before it are kept.
-                var ownerPath = owner?.Value.PropertyPath ?? Array.Empty<PropertyPathItem>();
-                var basePathCount = Math.Max(ownerPath.Count - 1, 0);
                 var namePrefix = owner?.Value.Name ?? string.Empty;
+
+                // names of a member's items are the same on every traversal: format them once, reuse them.
+                // Items of items (nested collections) have dynamic prefixes and are formatted on demand.
+                var names = owner == null ? ItemNameCache.Root : owner.Value.Node?.ItemNames;
 
                 switch (items)
                 {
@@ -372,15 +398,24 @@ namespace ObjectTreeWalker
                         var index = 0;
                         foreach (DictionaryEntry entry in dictionary)
                         {
-                            var itemBase = ItemName(namePrefix, index);
                             ProcessItem(
-                                entry.Key, $"{itemBase}.Key", index, isPartOfDictionary: true,
+                                entry.Key,
+                                names?.Key(index) ?? ItemNameCache.Format(namePrefix, index, ".Key"),
+                                index,
+                                isPartOfDictionary: true,
                                 new Location(dictionary, SlotKind.DictionaryKey),
-                                owner, ownerPath, basePathCount, queue, ref context);
+                                owner,
+                                queue,
+                                ref context);
                             ProcessItem(
-                                entry.Value, $"{itemBase}.Value", index, isPartOfDictionary: true,
+                                entry.Value,
+                                names?.Value(index) ?? ItemNameCache.Format(namePrefix, index, ".Value"),
+                                index,
+                                isPartOfDictionary: true,
                                 new Location(dictionary, SlotKind.DictionaryValue, Key: entry.Key),
-                                owner, ownerPath, basePathCount, queue, ref context);
+                                owner,
+                                queue,
+                                ref context);
                             index++;
                         }
 
@@ -388,7 +423,7 @@ namespace ObjectTreeWalker
                     }
 
                     case Array array when array.Rank > 1 || array.GetLowerBound(0) != 0:
-                        ProcessNonSzArray(array, owner, ownerPath, basePathCount, namePrefix, queue, ref context);
+                        ProcessNonSzArray(array, owner, namePrefix, queue, ref context);
                         break;
 
                     case IList list:
@@ -397,9 +432,14 @@ namespace ObjectTreeWalker
                         for (var index = 0; index < list.Count; index++)
                         {
                             ProcessItem(
-                                list[index], ItemName(namePrefix, index), index, isPartOfDictionary: false,
+                                list[index],
+                                names?.Item(index) ?? ItemName(namePrefix, index),
+                                index,
+                                isPartOfDictionary: false,
                                 new Location(list, SlotKind.ListIndex, Index: index),
-                                owner, ownerPath, basePathCount, queue, ref context);
+                                owner,
+                                queue,
+                                ref context);
                         }
 
                         break;
@@ -410,9 +450,14 @@ namespace ObjectTreeWalker
                         foreach (var item in items)
                         {
                             ProcessItem(
-                                item, ItemName(namePrefix, index), index, isPartOfDictionary: false,
+                                item,
+                                names?.Item(index) ?? ItemName(namePrefix, index),
+                                index,
+                                isPartOfDictionary: false,
                                 new Location(items, SlotKind.NotIndexable),
-                                owner, ownerPath, basePathCount, queue, ref context);
+                                owner,
+                                queue,
+                                ref context);
                             index++;
                         }
 
@@ -423,9 +468,7 @@ namespace ObjectTreeWalker
 
             private void ProcessNonSzArray(
                 Array array,
-                Ref<ObjectMemberInfo>? owner,
-                IReadOnlyList<PropertyPathItem> ownerPath,
-                int basePathCount,
+                MemberFrame? owner,
                 string namePrefix,
                 Queue<MemberAccessor> queue,
                 ref TContext context)
@@ -448,9 +491,14 @@ namespace ObjectTreeWalker
                 {
                     var name = rank > 1 ? ItemName(namePrefix, indices) : ItemName(namePrefix, index);
                     ProcessItem(
-                        item, name, index, isPartOfDictionary: false,
+                        item,
+                        name,
+                        index,
+                        isPartOfDictionary: false,
                         new Location(array, SlotKind.ArrayIndices, Indices: indices),
-                        owner, ownerPath, basePathCount, queue, ref context);
+                        owner,
+                        queue,
+                        ref context);
 
                     index++;
                     for (var dimension = rank - 1; dimension >= 0; dimension--)
@@ -471,40 +519,56 @@ namespace ObjectTreeWalker
                 int itemIndex,
                 bool isPartOfDictionary,
                 in Location location,
-                Ref<ObjectMemberInfo>? owner,
-                IReadOnlyList<PropertyPathItem> ownerPath,
-                int basePathCount,
+                MemberFrame? owner,
                 Queue<MemberAccessor> queue,
                 ref TContext context)
             {
-                var path = AppendPath(ownerPath, basePathCount, new PropertyPathItem(itemName, itemIndex, isPartOfDictionary));
-
                 // items without traversable members (primitives, strings, collections, ...) and aliases of
                 // already-expanded instances are reported as items; collections among them are expanded
                 // when dequeued. Everything else recurses so its members get visited.
-                var itemType = item?.GetType();
-                if (itemType == null ||
-                    _iterator._objectEnumerator.Enumerate(itemType).Roots.Count == 0 ||
-                    (!itemType.IsValueType && !_visited.Add(item!)))
+                if (item == null)
                 {
-                    queue.Enqueue(new MemberAccessor(new ObjectMemberInfo(itemName, item, null, owner, path)));
+                    queue.Enqueue(new MemberAccessor(new ObjectMemberInfo(itemName, null, itemIndex, isPartOfDictionary, null, owner, null)));
+                    return;
+                }
+
+                var graph = ResolveItemGraph(item.GetType(), owner?.Value.Node, location.Kind == SlotKind.DictionaryKey);
+                if (graph.Roots.Count == 0 || (!graph.IsValueType && !MarkVisited(item)))
+                {
+                    queue.Enqueue(new MemberAccessor(new ObjectMemberInfo(itemName, item, itemIndex, isPartOfDictionary, null, owner, graph)));
                     return;
                 }
 
                 // value-type items are boxed copies: remember where they live so member changes can be written back
-                var slot = itemType.IsValueType ? CollectionItemSlot.Create(location) : null;
-                var itemInfo = new ObjectMemberInfo(itemName, item, slot, owner, path);
-                Run(item!, new Ref<ObjectMemberInfo>(itemInfo), ref context);
+                var slot = graph.IsValueType ? CollectionItemSlot.Create(location) : null;
+                var itemInfo = new ObjectMemberInfo(itemName, item, itemIndex, isPartOfDictionary, slot, owner, graph);
+                Run(item, new MemberFrame(itemInfo), ref context);
             }
-        }
 
-        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
-        {
-            public static readonly ReferenceEqualityComparer Instance = new();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private ObjectGraph ResolveItemGraph(Type itemType, ObjectGraphNode? collectionNode, bool isKey)
+            {
+                var cached = isKey ? collectionNode?.LastKeyGraph : collectionNode?.LastItemGraph;
+                if (cached != null && cached.Type == itemType)
+                {
+                    return cached;
+                }
 
-            public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
+                var graph = _iterator._objectEnumerator.Enumerate(itemType);
+                if (collectionNode != null)
+                {
+                    if (isKey)
+                    {
+                        collectionNode.LastKeyGraph = graph;
+                    }
+                    else
+                    {
+                        collectionNode.LastItemGraph = graph;
+                    }
+                }
 
-            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
+                return graph;
+            }
         }
     }
 }

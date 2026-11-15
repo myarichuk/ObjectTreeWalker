@@ -34,12 +34,10 @@ internal sealed class ObjectAccessor
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a pointer, it is not supported by {nameof(ObjectAccessor)}.");
         }
 
-#if NET8_0_OR_GREATER
         if (objectType is { IsValueType: true, IsByRefLike: true })
         {
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
         }
-#endif
 
         if (objectType == typeof(string) || typeof(IEnumerable).IsAssignableFrom(objectType))
         {

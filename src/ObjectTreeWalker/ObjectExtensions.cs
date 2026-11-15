@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using Sigil;
 
 namespace ObjectTreeWalker
 {
@@ -12,22 +11,6 @@ namespace ObjectTreeWalker
     /// </summary>
     public static class ObjectExtensions
     {
-        // visited dictionaries that grew past this are dropped instead of pooled (Clear() never shrinks them)
-        private const int MaxPooledVisitedCount = 4096;
-
-        // Object.MemberwiseClone() is not virtual, so a single emitted delegate works for every type -
-        // it does a fast, allocation-minimal shallow field copy (including value-type fields) without
-        // going through FormatterServices/RuntimeHelpers.GetUninitializedObject + manual field-by-field sets.
-        private static readonly Func<object, object> MemberwiseCloneFunc = CreateMemberwiseCloneFunc();
-
-        // Per-type cache of the fields that actually need to be visited during a deep clone (i.e. fields whose
-        // value can contain object references). Plain value-type fields (int, DateTime, an enum, a struct made
-        // entirely of such fields, etc.) are already correctly copied by MemberwiseClone and can be skipped
-        // entirely, avoiding the box/unbox round trip that a generic get/set accessor would otherwise incur.
-        private static readonly ConcurrentDictionary<Type, FieldInfo[]> DeepCloneFieldsCache = new();
-
-        private static readonly ConcurrentDictionary<Type, bool> NeedsDeepCloneCache = new();
-
         private static readonly ConcurrentDictionary<Type, Func<object>?> CollectionFactoryCache = new();
 
         // Collections that expose a (int capacity) constructor get pre-sized to the source's item count,
@@ -62,47 +45,19 @@ namespace ObjectTreeWalker
         // object-boxing that iterating through the non-generic IList/IEnumerable interface would incur.
         private static readonly ConcurrentDictionary<Type, Action<object, object>?> FastCollectionCopyCache = new();
 
-        // Per-type compiled cloning strategy: a delegate that directly gets/sets each field needing a deep
-        // clone via Expression Trees, instead of going through ObjectAccessor's string-keyed dictionary lookups
-        // and box/unbox round trips on every field, every call. Built once per type and cached.
-        private static readonly ConcurrentDictionary<Type, Func<object, Dictionary<object, object>, object>> TypedClonerCache = new();
-
-        private static readonly MethodInfo DeepCloneInternalMethod =
-            typeof(ObjectExtensions).GetMethod(nameof(DeepCloneInternal), BindingFlags.NonPublic | BindingFlags.Static)!;
-
-        private static readonly MethodInfo SetFieldValueMethod =
-            typeof(ObjectExtensions).GetMethod(nameof(SetFieldValue), BindingFlags.NonPublic | BindingFlags.Static)!;
-
-        private static void SetFieldValue(object obj, FieldInfo field, object? value) => field.SetValue(obj, value);
-
-        private static readonly MethodInfo ReferenceEqualsMethod =
-            typeof(object).GetMethod(nameof(ReferenceEquals), BindingFlags.Public | BindingFlags.Static)!;
-
-        private static readonly PropertyInfo VisitedIndexerProperty =
-            typeof(Dictionary<object, object>).GetProperty("Item")!;
-
-        // the comparer is stateless, so a single shared instance avoids allocating one on every DeepClone<T>() call
-        private static readonly ReferenceEqualityComparer SharedReferenceEqualityComparer = new();
-
-        // Per-thread pool of "visited" dictionaries. A Dictionary<,> never shrinks its backing arrays on
-        // Clear(), so reusing one across DeepClone<T>() calls on the same thread turns what would otherwise be
-        // repeated bucket/entry-array allocations (as the dictionary grows back to its previous size) into a
-        // single Clear() with zero allocation, once the pool has warmed up.
-        [ThreadStatic]
-        private static Stack<Dictionary<object, object>>? visitedPool;
-
         /// <summary>
         /// Clears all internal DeepClone caches shared by every thread.
         /// </summary>
         /// <remarks>
         /// The caches are keyed by type, so this is only needed to reclaim memory in
         /// long-lived hosts that see many dynamic or generic types — never for correctness.
+        /// The compiled per-type cloners themselves are held in generic static caches and live for the
+        /// process lifetime (like <c>EqualityComparer&lt;T&gt;.Default</c>).
         /// See also <see cref="ObjectMemberIterator.ClearCache"/>.
         /// </remarks>
         public static void ClearCache()
         {
-            DeepCloneFieldsCache.Clear();
-            NeedsDeepCloneCache.Clear();
+            CloneEngine.ClearCache();
             CollectionFactoryCache.Clear();
             CollectionCapacityFactoryCache.Clear();
             CollectionComparerPropertyCache.Clear();
@@ -112,7 +67,6 @@ namespace ObjectTreeWalker
             CollectionAdderCache.Clear();
             CollectionElementTypeCache.Clear();
             FastCollectionCopyCache.Clear();
-            TypedClonerCache.Clear();
         }
 
         /// <summary>
@@ -123,75 +77,62 @@ namespace ObjectTreeWalker
         /// <returns>A deep clone of the object.</returns>
         public static T DeepClone<T>(this T source)
         {
-            // box once (a no-op for reference types) and use that single boxed reference throughout,
-            // so a primitive/string/decimal/DateTime/enum clone never allocates the visited dictionary at all
-            object? boxed = source;
-            if (boxed is null)
+            if (!CloneTraits<T>.NeedsClone || source is null)
+            {
+                return source; // immutable/reference-free types are folded to this by the JIT
+            }
+
+            if (typeof(T).IsValueType || source.GetType() == typeof(T))
+            {
+                // the static type is the exact runtime type: no dynamic dispatch at all
+                if (Cloner<T>.RootShallow is { } shallow)
+                {
+                    return shallow(source);
+                }
+
+                var context = CloneContext.Rent();
+                try
+                {
+                    return Cloner<T>.Clone(source, context);
+                }
+                finally
+                {
+                    CloneContext.Return(context);
+                }
+            }
+
+            object boxed = source;
+            if (CloneEngine.IsImmutable(boxed.GetType()) || CloneEngine.IsSharedReference(boxed))
             {
                 return source;
             }
 
-            var type = boxed.GetType();
-            if (IsImmutable(type) || IsSharedReference(boxed))
-            {
-                return source;
-            }
-
-            // a root that isn't an array/collection and has no fields needing a deep clone can't cycle back to
-            // itself (it has no outgoing references to walk) and, being the root, can't yet be aliased by
-            // anything else in this call - so the visited-tracking dictionary can be skipped entirely for it.
-            if (!type.IsArray && boxed is not IEnumerable && GetDeepCloneFields(type).Length == 0)
-            {
-                return (T)MemberwiseCloneFunc(boxed);
-            }
-
-            var visited = RentVisited();
+            var dynamicContext = CloneContext.Rent();
             try
             {
-                return (T)DeepCloneInternal(boxed, visited)!;
+                return (T)CloneEngine.CloneDynamic(boxed, dynamicContext)!;
             }
             finally
             {
-                ReturnVisited(visited);
+                CloneContext.Return(dynamicContext);
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Dictionary<object, object> RentVisited()
+        /// <summary>
+        /// Clones any collection (or array) other than the ones <see cref="CloneEngine"/> clones with typed code:
+        /// rebuilt through its public API so hash-based collections re-hash their cloned keys, keeping its
+        /// comparer and the extra state of user subclasses; field by field when it cannot be constructed.
+        /// </summary>
+        /// <param name="source">the collection</param>
+        /// <param name="type">its exact type</param>
+        /// <param name="visited">clone context</param>
+        /// <returns>the clone</returns>
+        internal static object CloneCollection(object source, Type type, CloneContext visited)
         {
-            var pool = visitedPool ??= new Stack<Dictionary<object, object>>();
-            return pool.Count > 0 ? pool.Pop() : new Dictionary<object, object>(SharedReferenceEqualityComparer);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ReturnVisited(Dictionary<object, object> visited)
-        {
-            var pool = visitedPool!;
-            if (pool.Count < 8 && visited.Count <= MaxPooledVisitedCount)
-            {
-                visited.Clear();
-                pool.Push(visited);
-            }
-        }
-
-        private static object? DeepCloneInternal(object? source, Dictionary<object, object> visited)
-        {
-            if (source is null)
-            {
-                return null;
-            }
-
-            var type = source.GetType();
-
-            if (IsImmutable(type) || IsSharedReference(source))
-            {
-                return source;
-            }
-
             // check for cyclic references
-            if (!type.IsValueType && visited.TryGetValue(source, out var existingClone))
+            if (!type.IsValueType && visited.TryGet(source, out var existingClone))
             {
-                return existingClone;
+                return existingClone!;
             }
 
             if (type.IsArray)
@@ -226,22 +167,22 @@ namespace ObjectTreeWalker
                 }
             }
 
-            return CloneObject(source, type, visited);
+            return CloneEngine.CloneFieldWise(source, visited);
         }
 
-        private static object CloneArray(Array array, Dictionary<object, object> visited)
+        private static object CloneArray(Array array, CloneContext visited)
         {
             var cloneArray = (Array)array.Clone();
 
             // arrays are always reference types
-            visited[array] = cloneArray;
+            visited.Add(array, cloneArray);
 
             // Array.Clone() already produced a correct, allocation-free bitwise copy of every element. If the
             // element type can't hold an object reference (int, an enum, a struct with no reference fields,
             // etc.), that bitwise copy already *is* the deep clone - walking it element by element would only
             // re-box and re-unbox each value for no benefit.
             var elementType = array.GetType().GetElementType()!;
-            if (!NeedsDeepClone(elementType))
+            if (!CloneEngine.NeedsDeepClone(elementType))
             {
                 return cloneArray;
             }
@@ -255,7 +196,7 @@ namespace ObjectTreeWalker
                     var item = cloneObjects[i];
                     if (item != null)
                     {
-                        cloneObjects[i] = DeepCloneInternal(item, visited)!;
+                        cloneObjects[i] = CloneEngine.CloneDynamic(item, visited)!;
                     }
                 }
             }
@@ -269,7 +210,7 @@ namespace ObjectTreeWalker
                     var item = array.GetValue(i + lowerBound);
                     if (item != null)
                     {
-                        var clonedItem = DeepCloneInternal(item, visited);
+                        var clonedItem = CloneEngine.CloneDynamic(item, visited);
                         cloneArray.SetValue(clonedItem, i + lowerBound);
                     }
                 }
@@ -284,7 +225,7 @@ namespace ObjectTreeWalker
             return cloneArray;
         }
 
-        private static object CloneDictionary(IDictionary source, Type type, Dictionary<object, object> visited)
+        private static object CloneDictionary(IDictionary source, Type type, CloneContext visited)
         {
             var clone = (IDictionary)CreateCollectionInstance(type, source.Count, GetCollectionComparerValue(type, source));
             RegisterVisited(source, clone, type, visited);
@@ -298,8 +239,8 @@ namespace ObjectTreeWalker
 
             foreach (DictionaryEntry entry in source)
             {
-                var clonedKey = DeepCloneInternal(entry.Key, visited);
-                var clonedValue = DeepCloneInternal(entry.Value, visited);
+                var clonedKey = CloneEngine.CloneDynamic(entry.Key, visited);
+                var clonedValue = CloneEngine.CloneDynamic(entry.Value, visited);
                 clone[clonedKey!] = clonedValue;
             }
 
@@ -308,7 +249,7 @@ namespace ObjectTreeWalker
             return clone;
         }
 
-        private static object CloneList(IList source, Type type, Dictionary<object, object> visited)
+        private static object CloneList(IList source, Type type, CloneContext visited)
         {
             var clone = (IList)CreateCollectionInstance(type, source.Count, GetCollectionComparerValue(type, source));
             RegisterVisited(source, clone, type, visited);
@@ -322,7 +263,7 @@ namespace ObjectTreeWalker
 
             foreach (var item in source)
             {
-                clone.Add(DeepCloneInternal(item, visited));
+                clone.Add(CloneEngine.CloneDynamic(item, visited));
             }
 
             CopyCollectionExtraState(source, clone, type, visited);
@@ -330,7 +271,7 @@ namespace ObjectTreeWalker
             return clone;
         }
 
-        private static object CloneCollection(IEnumerable source, Type type, Action<object, object?> adder, Dictionary<object, object> visited)
+        private static object CloneCollection(IEnumerable source, Type type, Action<object, object?> adder, CloneContext visited)
         {
             var comparer = GetCollectionComparerValue(type, source);
             var clone = source is ICollection sourceCollection
@@ -347,7 +288,7 @@ namespace ObjectTreeWalker
 
             foreach (var item in source)
             {
-                adder(clone, DeepCloneInternal(item, visited));
+                adder(clone, CloneEngine.CloneDynamic(item, visited));
             }
 
             CopyCollectionExtraState(source, clone, type, visited);
@@ -355,128 +296,14 @@ namespace ObjectTreeWalker
             return clone;
         }
 
-        private static object CloneObject(object source, Type type, Dictionary<object, object> visited)
-        {
-            // MemberwiseClone already copies every field bit-for-bit (including value-type fields, which
-            // require no further work at all), so only fields that can hold object references need revisiting.
-            var fieldsToClone = GetDeepCloneFields(type);
-            if (fieldsToClone.Length == 0)
-            {
-                var clone = MemberwiseCloneFunc(source);
-                RegisterVisited(source, clone, type, visited);
-                return clone;
-            }
-
-            // readonly fields cannot be assigned from a compiled expression tree when the clone
-            // itself is a value type (the assignment target would be a copy); fall back to a
-            // reflection loop for those structs (classes are handled inside the typed cloner).
-            if (type.IsValueType && fieldsToClone.Any(static field => field.IsInitOnly))
-            {
-                return CloneObjectViaReflection(source, type, visited);
-            }
-
-            // types with fields to revisit get a compiled per-type delegate that accesses those fields
-            // directly (no string-keyed dictionary lookup, no box/unbox round trip through ObjectAccessor).
-            return GetTypedCloner(type)(source, visited);
-        }
-
-        private static object CloneObjectViaReflection(object source, Type type, Dictionary<object, object> visited)
-        {
-            var clone = MemberwiseCloneFunc(source);
-            RegisterVisited(source, clone, type, visited);
-
-            foreach (var field in GetDeepCloneFields(type))
-            {
-                var origValue = field.GetValue(source);
-                var clonedValue = DeepCloneInternal(origValue, visited);
-
-                // MemberwiseClone already copied this reference (e.g. an immutable string or a null) -
-                // no need to set it again.
-                if (!ReferenceEquals(clonedValue, origValue))
-                {
-                    field.SetValue(clone, clonedValue);
-                }
-            }
-
-            return clone;
-        }
-
-        private static Func<object, Dictionary<object, object>, object> GetTypedCloner(Type type) =>
-            TypedClonerCache.GetOrAdd(type, CreateTypedCloner);
-
-        private static Func<object, Dictionary<object, object>, object> CreateTypedCloner(Type type)
-        {
-            var fields = GetDeepCloneFields(type);
-
-            var sourceParam = Expression.Parameter(typeof(object), "source");
-            var visitedParam = Expression.Parameter(typeof(Dictionary<object, object>), "visited");
-
-            var typedSource = Expression.Variable(type, "typedSource");
-            var cloneObj = Expression.Variable(typeof(object), "clone");
-            var typedClone = Expression.Variable(type, "typedClone");
-
-            var variables = new List<ParameterExpression> { typedSource, cloneObj, typedClone };
-            var statements = new List<Expression>
-            {
-                Expression.Assign(typedSource, Expression.Convert(sourceParam, type)),
-                Expression.Assign(cloneObj, Expression.Invoke(Expression.Constant(MemberwiseCloneFunc), sourceParam)),
-            };
-
-            if (!type.IsValueType)
-            {
-                // visited[source] = clone - registered before recursing into fields so self-references resolve
-                statements.Add(Expression.Assign(Expression.Property(visitedParam, VisitedIndexerProperty, sourceParam), cloneObj));
-            }
-
-            statements.Add(Expression.Assign(typedClone, Expression.Convert(cloneObj, type)));
-
-            foreach (var field in fields)
-            {
-                var origVar = Expression.Variable(typeof(object), "orig_" + field.Name);
-                var clonedVar = Expression.Variable(typeof(object), "cloned_" + field.Name);
-                variables.Add(origVar);
-                variables.Add(clonedVar);
-
-                statements.Add(Expression.Assign(origVar, Expression.Convert(Expression.Field(typedSource, field), typeof(object))));
-                statements.Add(Expression.Assign(clonedVar, Expression.Call(DeepCloneInternalMethod, origVar, visitedParam)));
-
-                // MemberwiseClone already copied this reference (e.g. an immutable string, a null, or a cyclic
-                // reference resolved back to the very clone being built) - no need to set it again.
-                // Readonly fields (e.g. the backing field of a get-only auto-property) cannot be assigned
-                // from an expression tree, so they go through a small reflection helper instead.
-                Expression setField = field.IsInitOnly
-                    ? Expression.Call(
-                        SetFieldValueMethod,
-                        Expression.Convert(typedClone, typeof(object)),
-                        Expression.Constant(field),
-                        clonedVar)
-                    : Expression.Assign(Expression.Field(typedClone, field), Expression.Convert(clonedVar, field.FieldType));
-
-                statements.Add(Expression.IfThen(
-                    Expression.Not(Expression.Call(ReferenceEqualsMethod, clonedVar, origVar)),
-                    setField));
-            }
-
-            if (type.IsValueType)
-            {
-                // struct fields were mutated on a local copy (typedClone); write it back into the boxed clone
-                statements.Add(Expression.Assign(cloneObj, Expression.Convert(typedClone, typeof(object))));
-            }
-
-            statements.Add(cloneObj);
-
-            var body = Expression.Block(typeof(object), variables, statements);
-            return Expression.Lambda<Func<object, Dictionary<object, object>, object>>(body, sourceParam, visitedParam).Compile();
-        }
-
-        private static void CopyMultidimensionalArray(Array source, Array dest, int[] indices, int dimension, Dictionary<object, object> visited)
+        private static void CopyMultidimensionalArray(Array source, Array dest, int[] indices, int dimension, CloneContext visited)
         {
             if (dimension == source.Rank)
             {
                 var item = source.GetValue(indices);
                 if (item != null)
                 {
-                    var clonedItem = DeepCloneInternal(item, visited);
+                    var clonedItem = CloneEngine.CloneDynamic(item, visited);
                     dest.SetValue(clonedItem, indices);
                 }
                 return;
@@ -492,63 +319,13 @@ namespace ObjectTreeWalker
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void RegisterVisited(object source, object clone, Type type, Dictionary<object, object> visited)
+        private static void RegisterVisited(object source, object clone, Type type, CloneContext visited)
         {
             if (!type.IsValueType)
             {
-                visited[source] = clone;
+                visited.Add(source, clone);
             }
         }
-
-        // Every instance field of the type, including private fields of base classes (GetFields on the
-        // concrete type does not return those), that can hold an object reference. Deliberately independent
-        // of the traversal's ObjectEnumerator: cloning needs the raw storage of *every* type - collections,
-        // KeyValuePair<,> backing fields and compiler-generated fields included.
-        private static FieldInfo[] GetDeepCloneFields(Type type) =>
-            DeepCloneFieldsCache.GetOrAdd(type, static t =>
-            {
-                var fields = new List<FieldInfo>();
-                for (var current = t; current != null && current != typeof(object); current = current.BaseType)
-                {
-                    foreach (var field in current.GetFields(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-                    {
-                        if (NeedsDeepClone(field.FieldType))
-                        {
-                            fields.Add(field);
-                        }
-                    }
-                }
-
-                return fields.ToArray();
-            });
-
-        // Mirrors RuntimeHelpers.IsReferenceOrContainsReferences<T>() without the generic-invoke overhead and
-        // without requiring the netstandard2.1 target to support that intrinsic.
-        private static bool NeedsDeepClone(Type type) =>
-            NeedsDeepCloneCache.GetOrAdd(type, static t =>
-            {
-                if (IsImmutable(t) || IsSharedReferenceType(t))
-                {
-                    return false;
-                }
-
-                if (!t.IsValueType)
-                {
-                    return true;
-                }
-
-                // a struct only needs a visit if one of its fields (recursively) can hold an object reference
-                foreach (var field in t.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
-                {
-                    if (NeedsDeepClone(field.FieldType))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            });
 
         private static object CreateCollectionInstance(Type type) =>
             GetParameterlessFactory(type)?.Invoke()
@@ -573,28 +350,6 @@ namespace ObjectTreeWalker
                     ? null
                     : Expression.Lambda<Func<object>>(Expression.Convert(Expression.New(ctor), typeof(object))).Compile();
             });
-
-        // Instances of these types are never copied: they are immutable.
-        // Called for every cloned node, so it is kept to cheap identity checks.
-        private static bool IsImmutable(Type type) =>
-            type.IsPrimitive ||
-            type == typeof(string) ||
-            type.IsEnum ||
-            type == typeof(decimal) ||
-            type == typeof(DateTime) ||
-            type == typeof(DateTimeOffset) ||
-            type == typeof(TimeSpan) ||
-            type == typeof(Guid);
-
-        // Reflection objects are runtime singletons whose identity matters: a MemberwiseClone'd RuntimeType
-        // is a distinct, broken Type. Instance type checks are much cheaper than Type.IsAssignableFrom.
-        private static bool IsSharedReference(object instance) =>
-            instance is MemberInfo or Assembly or Module;
-
-        private static bool IsSharedReferenceType(Type type) =>
-            typeof(MemberInfo).IsAssignableFrom(type) ||
-            typeof(Assembly).IsAssignableFrom(type) ||
-            typeof(Module).IsAssignableFrom(type);
 
         private static object CreateCollectionInstance(Type type, object? comparer) =>
             TryCreateCollectionInstanceWithComparer(type, comparer, useCapacity: false, capacity: 0, out var instance)
@@ -754,7 +509,7 @@ namespace ObjectTreeWalker
         /// <c>List&lt;T&gt;</c> derivative) from source to clone. Plain framework collections
         /// are skipped: their storage lives on the framework type itself and is already cloned.
         /// </summary>
-        private static void CopyCollectionExtraState(object source, object clone, Type type, Dictionary<object, object> visited)
+        private static void CopyCollectionExtraState(object source, object clone, Type type, CloneContext visited)
         {
             if (IsFrameworkCollectionType(type))
             {
@@ -776,7 +531,7 @@ namespace ObjectTreeWalker
             object source,
             object clone,
             Type type,
-            Dictionary<object, object> visited,
+            CloneContext visited,
             HashSet<string> copiedProperties,
             HashSet<string> copiedFields)
         {
@@ -808,7 +563,7 @@ namespace ObjectTreeWalker
                 // NOTE: no ReferenceEquals skip here (unlike CloneObject): the clone was built
                 // with a fresh constructor, not MemberwiseClone, so even identical references
                 // (e.g. an immutable string) still need to be assigned onto the new instance.
-                var clonedValue = DeepCloneInternal(originalValue, visited);
+                var clonedValue = CloneEngine.CloneDynamic(originalValue, visited);
                 setMethod.Invoke(clone, new[] { clonedValue });
             }
 
@@ -825,7 +580,7 @@ namespace ObjectTreeWalker
                     continue;
                 }
 
-                var clonedFieldValue = DeepCloneInternal(field.GetValue(source), visited);
+                var clonedFieldValue = CloneEngine.CloneDynamic(field.GetValue(source), visited);
                 field.SetValue(clone, clonedFieldValue);
             }
         }
@@ -901,7 +656,7 @@ namespace ObjectTreeWalker
             copier = FastCollectionCopyCache.GetOrAdd(type, static t =>
             {
                 var elementType = GetCollectionElementType(t);
-                return elementType != null && !NeedsDeepClone(elementType)
+                return elementType != null && !CloneEngine.NeedsDeepClone(elementType)
                     ? BuildFastCollectionCopy(t, elementType)
                     : null;
             });
@@ -965,25 +720,6 @@ namespace ObjectTreeWalker
                     breakLabel));
 
             return Expression.Lambda<Action<object, object>>(loopBody, sourceParam, cloneParam).Compile();
-        }
-
-        private static Func<object, object> CreateMemberwiseCloneFunc()
-        {
-            var memberwiseCloneMethod = typeof(object).GetMethod("MemberwiseClone", BindingFlags.NonPublic | BindingFlags.Instance)!;
-            var emitter = Emit<Func<object, object>>.NewDynamicMethod("ObjectTreeWalker_MemberwiseClone");
-
-            emitter.LoadArgument(0);
-            emitter.Call(memberwiseCloneMethod);
-            emitter.Return();
-
-            return emitter.CreateDelegate();
-        }
-
-        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
-        {
-            public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
-
-            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
     }
 }

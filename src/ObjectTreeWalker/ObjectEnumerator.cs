@@ -13,10 +13,13 @@ namespace ObjectTreeWalker
         private const BindingFlags DeclaredInstanceMembers =
             BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-        // keyed by the whole (immutable) settings record: every setting changes the resulting graph
-        private static readonly ConcurrentDictionary<(Type Type, Settings Settings), ObjectGraph> ObjectGraphCache = new();
+        // One type-keyed graph cache per distinct (immutable) settings value: every setting changes the
+        // resulting graph. Resolved once per enumerator, so the per-value lookup on the traversal hot path
+        // hashes a Type only - never the settings record.
+        private static readonly ConcurrentDictionary<Settings, ConcurrentDictionary<Type, ObjectGraph>> GraphCaches = new();
 
-        private readonly Func<(Type Type, Settings Settings), ObjectGraph> _graphFactory;
+        private readonly ConcurrentDictionary<Type, ObjectGraph> _graphs;
+        private readonly Func<Type, ObjectGraph> _graphFactory;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ObjectEnumerator"/> class
@@ -25,6 +28,7 @@ namespace ObjectTreeWalker
         public ObjectEnumerator(Settings settings)
         {
             EnumeratorSettings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _graphs = GraphCaches.GetOrAdd(settings, static _ => new ConcurrentDictionary<Type, ObjectGraph>());
             _graphFactory = CreateGraph;
         }
 
@@ -46,7 +50,13 @@ namespace ObjectTreeWalker
         /// </summary>
         /// <remarks>The cache is keyed by both type and settings, so this is only needed to reclaim memory, never for correctness.
         /// Exposed publicly through <see cref="ObjectMemberIterator.ClearCache"/>.</remarks>
-        public static void ClearCache() => ObjectGraphCache.Clear();
+        public static void ClearCache()
+        {
+            foreach (var graphs in GraphCaches.Values)
+            {
+                graphs.Clear();
+            }
+        }
 
         /// <summary>
         /// Enumerate and fetch property/field graph of the type
@@ -54,7 +64,7 @@ namespace ObjectTreeWalker
         /// <param name="type">the type to enumerate</param>
         /// <returns>object graph</returns>
         public ObjectGraph Enumerate(Type type) =>
-            ObjectGraphCache.GetOrAdd((type, EnumeratorSettings), _graphFactory);
+            _graphs.TryGetValue(type, out var graph) ? graph : _graphs.GetOrAdd(type, _graphFactory);
 
         private static ObjectGraphNode CreateNode(EnumerationItem item, ObjectGraphNode? parent) =>
             new(item.MemberInfo, parent)
@@ -84,8 +94,8 @@ namespace ObjectTreeWalker
             !memberType.IsByRef &&
             !memberType.IsByRefLike;
 
-        private ObjectGraph CreateGraph((Type Type, Settings Settings) key) =>
-            new(key.Type, EnumerateChildMembers(key.Type).Select(item => EnumerateMember(null, item)));
+        private ObjectGraph CreateGraph(Type type) =>
+            new(type, EnumerateChildMembers(type).Select(item => EnumerateMember(null, item)));
 
         private ObjectGraphNode EnumerateMember(ObjectGraphNode? parent, EnumerationItem item)
         {
