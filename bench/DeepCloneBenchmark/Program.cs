@@ -89,7 +89,7 @@ namespace DeepCloneBenchmark
     {
         public static void Main(string[] args)
         {
-            var summary = BenchmarkRunner.Run<DeepCloneBenchmarks>();
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
         }
     }
 }

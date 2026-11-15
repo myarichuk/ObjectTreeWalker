@@ -65,6 +65,16 @@ namespace IteratorBenchmark
                 // Just visit
             });
         }
+
+        [Benchmark]
+        public int Traverse_ComplexObject_ReadValues() =>
+            _iterator.Traverse(_complexObject, static (ref int count, in MemberAccessor accessor) =>
+            {
+                if (accessor.GetValue() != null)
+                {
+                    count++;
+                }
+            });
     }
 
 #pragma warning disable CS1591
@@ -72,7 +82,7 @@ namespace IteratorBenchmark
     {
         public static void Main(string[] args)
         {
-            var summary = BenchmarkRunner.Run<IteratorBenchmarks>();
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
         }
     }
 }
