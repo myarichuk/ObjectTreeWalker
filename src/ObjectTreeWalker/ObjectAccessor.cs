@@ -1,37 +1,32 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using Sigil;
 
-// ReSharper disable ComplexConditionExpression
 namespace ObjectTreeWalker;
 
 /// <summary>
-/// A helper class that replaces reflection access to properties and fields
+/// A helper class that replaces reflection access to properties and fields, by member name
 /// </summary>
-/// <remarks>This class does not support static fields and properties </remarks>
-// inspired by https://www.codeproject.com/Articles/14560/Fast-Dynamic-Property-Field-Accessors
-internal class ObjectAccessor
+/// <remarks>
+/// This class does not support static fields and properties.
+/// When a member name is declared more than once in the hierarchy (a member hidden with <c>new</c>),
+/// the most derived member wins. Traversal does not go through this class: it binds accessors to the
+/// member itself (see <see cref="ObjectGraphNode.Getter"/>), which keeps hidden members distinct.
+/// </remarks>
+internal sealed class ObjectAccessor
 {
-    private static readonly ConcurrentDictionary<Type, MethodInfo> GetDefaultCache = new();
     private static readonly ConcurrentDictionary<Type, ObjectAccessor> AccessorCache = new();
-    private readonly Type _objectType;
-    private readonly bool _iUnsupportedAccessor;
-    private readonly Dictionary<string, Func<object, object>> _getPropertyMethods = new();
-    private readonly Dictionary<string, Action<object, object>> _setPropertyMethods = new();
 
-    private readonly Dictionary<string, Func<object, object>> _getFieldMethods = new();
-    private readonly Dictionary<string, Action<object, object>> _setFieldMethods = new();
+    private readonly bool _isUnsupportedType;
 
-    private readonly Dictionary<string, PropertyInfo> _propertyCache = new();
-    private readonly Dictionary<string, FieldInfo> _fieldCache = new();
+    // properties are inserted first, so a property wins over a same-named field (as it always has)
+    private readonly Dictionary<string, CompiledMember> _members = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ObjectAccessor"/> class
     /// </summary>
     /// <param name="objectType">type of the object to prepare access of it's properties</param>
-    /// <exception cref="ArgumentException">The type <paramref name="objectType"/> is a ref struct, it is not supported by <see cref="ObjectAccessor"/></exception>
+    /// <exception cref="ArgumentException">The type <paramref name="objectType"/> is a pointer, a ref struct or contains pointer members</exception>
     public ObjectAccessor(Type objectType)
     {
         if (objectType.IsPointer)
@@ -39,21 +34,18 @@ internal class ObjectAccessor
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a pointer, it is not supported by {nameof(ObjectAccessor)}.");
         }
 
-#if NET8_0_OR_GREATER
         if (objectType is { IsValueType: true, IsByRefLike: true })
         {
             throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} is a ref struct, it is not supported by {nameof(ObjectAccessor)}.");
         }
-#endif
-
-        _objectType = objectType;
 
         if (objectType == typeof(string) || typeof(IEnumerable).IsAssignableFrom(objectType))
         {
-            _iUnsupportedAccessor = true;
+            _isUnsupportedType = true;
             return;
         }
 
+        // GetProperties/GetFields return the most derived declarations first
         foreach (var propertyInfo in objectType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public))
         {
             // indexers require arguments to read and cannot be accessed like plain members
@@ -67,15 +59,12 @@ internal class ObjectAccessor
                 throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer property, it is not supported by {nameof(ObjectAccessor)}.");
             }
 
-            AddPropertyToCacheIfNeeded(propertyInfo);
-            if (propertyInfo.GetMethod != null)
+            if (!_members.ContainsKey(propertyInfo.Name))
             {
-                _getPropertyMethods.Add(propertyInfo.Name, CreateGetPropertyFunc(propertyInfo));
-            }
-
-            if (propertyInfo.SetMethod != null)
-            {
-                _setPropertyMethods.Add(propertyInfo.Name, CreateSetPropertyFunc(propertyInfo));
+                _members.Add(propertyInfo.Name, new CompiledMember(
+                    propertyInfo.PropertyType,
+                    propertyInfo.GetMethod != null ? MemberAccessorEmitter.CreateGetter(propertyInfo) : null,
+                    propertyInfo.SetMethod != null ? MemberAccessorEmitter.CreateSetter(propertyInfo) : null));
             }
         }
 
@@ -86,9 +75,13 @@ internal class ObjectAccessor
                 throw new ArgumentException($"The type {objectType.AssemblyQualifiedName} contains a pointer field, it is not supported by {nameof(ObjectAccessor)}.");
             }
 
-            AddFieldToCacheIfNeeded(fieldInfo);
-            _getFieldMethods.Add(fieldInfo.Name, CreateGetFieldFunc(fieldInfo));
-            _setFieldMethods.Add(fieldInfo.Name, CreateSetFieldFunc(fieldInfo));
+            if (!_members.ContainsKey(fieldInfo.Name))
+            {
+                _members.Add(fieldInfo.Name, new CompiledMember(
+                    fieldInfo.FieldType,
+                    MemberAccessorEmitter.CreateGetter(fieldInfo),
+                    MemberAccessorEmitter.CreateSetter(fieldInfo)));
+            }
         }
     }
 
@@ -100,24 +93,20 @@ internal class ObjectAccessor
     /// <remarks>
     /// Constructing an <see cref="ObjectAccessor"/> reflects over every member of the type and IL-emits
     /// accessor delegates for each one, so this cache must be used instead of <c>new ObjectAccessor(...)</c>
-    /// everywhere the same type may be accessed more than once (e.g. cloning many instances of the same type).
+    /// everywhere the same type may be accessed more than once.
     /// </remarks>
     public static ObjectAccessor GetOrCreate(Type objectType) =>
         AccessorCache.GetOrAdd(objectType, static t => new ObjectAccessor(t));
 
     /// <summary>
-    /// Clears the shared <see cref="ObjectAccessor"/> and getter-default caches.
+    /// Clears the shared <see cref="ObjectAccessor"/> cache.
     /// </summary>
     /// <remarks>
-    /// The caches are keyed by type, so this is only needed to reclaim memory in
+    /// The cache is keyed by type, so this is only needed to reclaim memory in
     /// long-lived hosts that see many dynamic or generic types — never for correctness.
-    /// See also <see cref="ObjectEnumerator.ClearCache"/> and <see cref="ObjectExtensions.ClearCache"/>.
+    /// Exposed publicly through <see cref="ObjectMemberIterator.ClearCache"/>.
     /// </remarks>
-    public static void ClearCache()
-    {
-        AccessorCache.Clear();
-        GetDefaultCache.Clear();
-    }
+    public static void ClearCache() => AccessorCache.Clear();
 
     /// <summary>
     /// Try fetching the field or a property from the object
@@ -131,21 +120,16 @@ internal class ObjectAccessor
     {
         ValidateThrowIfNeeded(source, memberName);
 
-        value = default;
-
-        // strings have no valid members to access!
-        if (_iUnsupportedAccessor)
+        value = null;
+        if (_isUnsupportedType ||
+            !_members.TryGetValue(memberName, out var member) ||
+            member.Getter == null)
         {
             return false;
         }
 
-        if (_getPropertyMethods.TryGetValue(memberName, out var getterPropertyFunc))
-        {
-            return TryExecuteGetter(source, out value, getterPropertyFunc);
-        }
-
-        return _getFieldMethods.TryGetValue(memberName, out var getterFieldFunc) &&
-               TryExecuteGetter(source, out value, getterFieldFunc);
+        value = member.Getter(source);
+        return true;
     }
 
     /// <summary>
@@ -154,73 +138,43 @@ internal class ObjectAccessor
     /// <param name="source">object to work on</param>
     /// <param name="memberName">field or property name</param>
     /// <param name="value">value to be set</param>
-    /// <returns>true if setting successful, false otherwise</returns>
-    /// <exception cref="InvalidOperationException">Failed to find property in the property cache..</exception>
+    /// <returns>true if setting successful, false if there is no such writable member</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> or <paramref name="memberName"/> is <see langword="null"/></exception>
+    /// <exception cref="InvalidOperationException">The type of <paramref name="value"/> does not match the member type</exception>
     public bool TrySetValue(object source, string memberName, object? value)
     {
         ValidateThrowIfNeeded(source, memberName);
 
-        // strings have no valid members to access!
-        if (_iUnsupportedAccessor)
+        if (_isUnsupportedType ||
+            !_members.TryGetValue(memberName, out var member) ||
+            member.Setter == null)
         {
             return false;
         }
 
-        if (_setPropertyMethods.TryGetValue(memberName, out var setterPropertyFunc))
-        {
-            if (!_propertyCache.TryGetValue(memberName, out var propertyInfo))
-            {
-                throw new InvalidOperationException($"Failed to find property {memberName} in property cache. This is not supposed to happen and is likely a bug.");
-            }
-
-            // safety precaution
-            if (value != null && !propertyInfo.PropertyType.IsInstanceOfType(value))
-            {
-                throw new InvalidOperationException($"Type mismatch, cannot set member. Property type = {propertyInfo.PropertyType} but value type = {value.GetType()}");
-            }
-
-            ExecuteSetter(source, value, setterPropertyFunc);
-            return true;
-        }
-
-        if (_setFieldMethods.TryGetValue(memberName, out var setterFieldFunc))
-        {
-            if (!_fieldCache.TryGetValue(memberName, out var fieldInfo))
-            {
-                throw new InvalidOperationException($"Failed to find field {memberName} in the field cache. This is not supposed to happen and is likely a bug.");
-            }
-
-            // safety precaution
-            if (value != null && !fieldInfo.FieldType.IsInstanceOfType(value))
-            {
-                throw new InvalidOperationException($"Type mismatch, cannot set member. Field type = {fieldInfo.FieldType}, value type = {value.GetType()}");
-            }
-
-            ExecuteSetter(source, value, setterFieldFunc);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryExecuteGetter(object source, out object? value, Func<object, object> getterFieldFunc)
-    {
-        // ReSharper disable once EventExceptionNotDocumented
-        value = getterFieldFunc(source);
+        AssignChecked(member.Setter, member.Type, source, memberName, value);
         return true;
     }
 
-    private static void ExecuteSetter(object objectInstance, object? newValue, Action<object, object> setter)
+    /// <summary>
+    /// Invokes <paramref name="setter"/> after verifying that <paramref name="value"/> is assignable to <paramref name="memberType"/>
+    /// </summary>
+    /// <param name="setter">compiled member setter</param>
+    /// <param name="memberType">declared type of the member</param>
+    /// <param name="source">instance to set the member on</param>
+    /// <param name="memberName">member name, for error reporting</param>
+    /// <param name="value">the new value</param>
+    /// <exception cref="InvalidOperationException">The type of <paramref name="value"/> does not match <paramref name="memberType"/></exception>
+    internal static void AssignChecked(Action<object, object?> setter, Type memberType, object source, string memberName, object? value)
     {
-        // ReSharper disable once EventExceptionNotDocumented
-        try
+        // the emitted setter would otherwise fail with an InvalidCastException deep inside dynamic IL
+        if (value != null && !memberType.IsInstanceOfType(value))
         {
-            setter(objectInstance, newValue!);
+            throw new InvalidOperationException(
+                $"Type mismatch, cannot set member '{memberName}'. Member type = {memberType}, value type = {value.GetType()}");
         }
-        catch (InvalidCastException e)
-        {
-            throw new InvalidOperationException("Object accessor failed to execute a setter, perhaps the type of the object specified doesn't match the type of the instance?", e);
-        }
+
+        setter(source, value);
     }
 
     private static void ValidateThrowIfNeeded(object source, string memberName)
@@ -236,193 +190,5 @@ internal class ObjectAccessor
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static T? GetDefault<T>() => default;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static string GetMethodName(string prefix, MemberInfo memberInfo)
-    {
-        var className = memberInfo.ReflectedType?.AssemblyQualifiedName ?? string.Empty;
-        return $"{prefix}{className}{memberInfo.Name}";
-    }
-
-    private Func<object, object> CreateGetFieldFunc(FieldInfo fieldInfo)
-    {
-        var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", fieldInfo));
-
-        emitter.LoadArgument(0); // this
-        if (_objectType.IsValueType)
-        {
-            emitter.Unbox(_objectType);
-        }
-        else
-        {
-            emitter.CastClass(_objectType);
-        }
-
-        emitter.LoadField(fieldInfo);
-
-        if (fieldInfo.FieldType.IsValueType)
-        {
-            emitter.Box(fieldInfo.FieldType);
-        }
-
-        emitter.Return();
-        return emitter.CreateDelegate();
-    }
-
-    private Action<object, object> CreateSetFieldFunc(FieldInfo fieldInfo)
-    {
-        var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", fieldInfo));
-        var afterLabel = emitter.DefineLabel("after");
-
-        if (fieldInfo.FieldType.IsValueType)
-        {
-            emitter.LoadArgument(1);
-            emitter.BranchIfTrue("after"); // if null it will not branch!
-
-            var getDefaultConcrete =
-                GetDefaultCache.GetOrAdd(
-                    fieldInfo.FieldType,
-                    t => typeof(ObjectAccessor)
-                        .GetMethod(
-                            nameof(GetDefault),
-                            BindingFlags.Static | BindingFlags.NonPublic)!
-                        .MakeGenericMethod(t));
-
-            emitter.Call(getDefaultConcrete);
-            emitter.Box(fieldInfo.FieldType);
-            emitter.StoreArgument(1);
-        }
-
-        emitter.MarkLabel(afterLabel);
-
-        emitter.LoadArgument(0); // this
-        if (_objectType.IsValueType)
-        {
-            emitter.Unbox(_objectType);
-        }
-        else
-        {
-            emitter.CastClass(_objectType);
-        }
-
-        emitter.LoadArgument(1); // value to save
-
-        if (fieldInfo.FieldType.IsValueType)
-        {
-            emitter.UnboxAny(fieldInfo.FieldType);
-        }
-        else
-        {
-            emitter.CastClass(fieldInfo.FieldType);
-        }
-
-        emitter.StoreField(fieldInfo);
-
-        emitter.Return();
-        return emitter.CreateDelegate();
-    }
-
-    private Func<object, object> CreateGetPropertyFunc(PropertyInfo propertyInfo)
-    {
-        var emitter = Emit<Func<object, object>>.NewDynamicMethod(GetMethodName("Get", propertyInfo));
-
-        emitter.LoadArgument(0); // this
-        if (_objectType.IsValueType)
-        {
-            emitter.Unbox(_objectType);
-        }
-        else
-        {
-            emitter.CastClass(_objectType);
-        }
-
-        emitter.Call(propertyInfo.GetMethod);
-
-        if (propertyInfo.PropertyType.IsValueType)
-        {
-            emitter.Box(propertyInfo.PropertyType);
-        }
-
-        emitter.Return();
-
-        return emitter.CreateDelegate();
-    }
-
-    private Action<object, object> CreateSetPropertyFunc(PropertyInfo propertyInfo)
-    {
-        var emitter = Emit<Action<object, object>>.NewDynamicMethod(GetMethodName("Set", propertyInfo));
-        var afterLabel = emitter.DefineLabel("after");
-
-        if (propertyInfo.PropertyType.IsValueType)
-        {
-            emitter.LoadArgument(1);
-            emitter.BranchIfTrue("after");
-
-            var getDefaultConcrete =
-                GetDefaultCache.GetOrAdd(
-                    propertyInfo.PropertyType,
-                    t => typeof(ObjectAccessor)
-                        .GetMethod(
-                            nameof(GetDefault),
-                            BindingFlags.Static | BindingFlags.NonPublic)!
-                        .MakeGenericMethod(t));
-
-            emitter.Call(getDefaultConcrete);
-            emitter.Box(propertyInfo.PropertyType);
-            emitter.StoreArgument(1);
-        }
-
-        emitter.MarkLabel(afterLabel);
-        emitter.LoadArgument(0); // this
-        if (_objectType.IsValueType)
-        {
-            emitter.Unbox(_objectType);
-        }
-        else
-        {
-            emitter.CastClass(_objectType);
-        }
-
-        emitter.LoadArgument(1); // property value
-
-        if (propertyInfo.PropertyType.IsValueType)
-        {
-            emitter.UnboxAny(propertyInfo.PropertyType);
-        }
-        else
-        {
-            emitter.CastClass(propertyInfo.PropertyType);
-        }
-
-        emitter.Call(propertyInfo.SetMethod);
-        emitter.Return();
-
-        return emitter.CreateDelegate();
-    }
-
-    private void AddPropertyToCacheIfNeeded(PropertyInfo propertyInfo)
-    {
-#if NET8_0_OR_GREATER
-        _propertyCache.TryAdd(propertyInfo.Name, propertyInfo);
-#else
-        if (!_propertyCache.ContainsKey(propertyInfo.Name))
-        {
-            _propertyCache.Add(propertyInfo.Name, propertyInfo);
-        }
-#endif
-    }
-
-    private void AddFieldToCacheIfNeeded(FieldInfo fieldInfo)
-    {
-#if NET8_0_OR_GREATER
-        _fieldCache.TryAdd(fieldInfo.Name, fieldInfo);
-#else
-        if (!_fieldCache.ContainsKey(fieldInfo.Name))
-        {
-            _fieldCache.Add(fieldInfo.Name, fieldInfo);
-        }
-#endif
-    }
+    private readonly record struct CompiledMember(Type Type, Func<object, object?>? Getter, Action<object, object?>? Setter);
 }

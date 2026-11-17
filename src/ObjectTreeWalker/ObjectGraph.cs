@@ -3,7 +3,7 @@ namespace ObjectTreeWalker;
 /// <summary>
 /// Internal class to represent an object graph.
 /// </summary>
-internal record ObjectGraph
+internal sealed class ObjectGraph
 {
     /// <summary>
     /// Gets the root object type
@@ -24,5 +24,18 @@ internal record ObjectGraph
     {
         Type = type;
         Roots = new List<ObjectGraphNode>(roots);
+        IsValueType = type.IsValueType;
+        IsCollection = type != typeof(string) && typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
     }
+
+    /// <summary>
+    /// Gets a value indicating whether values of the type are expanded into their items
+    /// (precomputed: saves an interface check per visited value)
+    /// </summary>
+    public bool IsCollection { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the type is a value type (precomputed)
+    /// </summary>
+    public bool IsValueType { get; }
 }

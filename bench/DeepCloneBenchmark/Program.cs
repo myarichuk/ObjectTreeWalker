@@ -27,6 +27,7 @@ namespace DeepCloneBenchmark
     {
         private SimpleObject _simpleObject = new SimpleObject();
         private ComplexObject _complexObject = new ComplexObject();
+        private List<ComplexObject> _graph = new List<ComplexObject>();
 
         [GlobalSetup]
         public void Setup()
@@ -45,6 +46,26 @@ namespace DeepCloneBenchmark
                     { "key2", new SimpleObject { Id = 4, Name = "DictSimple2" } }
                 }
             };
+
+            // a larger graph: 100 complex objects, every 10th one shared (aliased) to exercise identity tracking
+            _graph = new List<ComplexObject>(100);
+            for (var i = 0; i < 100; i++)
+            {
+                _graph.Add(i % 10 == 9
+                    ? _graph[i - 1]
+                    : new ComplexObject
+                    {
+                        Id = i,
+                        Name = "Item" + i,
+                        Simple = new SimpleObject { Id = i, Name = "Inner" + i },
+                        Numbers = Enumerable.Range(0, 16).ToList(),
+                        Dict = new Dictionary<string, SimpleObject>
+                        {
+                            { "a" + i, new SimpleObject { Id = i, Name = "A" } },
+                            { "b" + i, new SimpleObject { Id = i, Name = "B" } },
+                        },
+                    });
+            }
         }
 
         [Benchmark]
@@ -82,6 +103,24 @@ namespace DeepCloneBenchmark
         {
             return Force.DeepCloner.DeepClonerExtensions.DeepClone(_complexObject);
         }
+
+        [Benchmark]
+        public List<ComplexObject> ObjectTreeWalker_Graph100()
+        {
+            return ObjectTreeWalker.ObjectExtensions.DeepClone(_graph);
+        }
+
+        [Benchmark]
+        public List<ComplexObject> AnyClone_Graph100()
+        {
+            return _graph.Clone();
+        }
+
+        [Benchmark]
+        public List<ComplexObject> DeepCloner_Graph100()
+        {
+            return Force.DeepCloner.DeepClonerExtensions.DeepClone(_graph);
+        }
     }
 
 #pragma warning disable CS1591
@@ -89,7 +128,7 @@ namespace DeepCloneBenchmark
     {
         public static void Main(string[] args)
         {
-            var summary = BenchmarkRunner.Run<DeepCloneBenchmarks>();
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
         }
     }
 }
